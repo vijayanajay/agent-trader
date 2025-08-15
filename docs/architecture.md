@@ -13,7 +13,7 @@ This system is an experiment in rapid, pragmatic development. Our goal is not to
 2.  **Speed of Iteration:** The architecture must allow for fast changes. The agentic design is key. Swapping a prompt or a Python function should be trivial. We are building for experimentation, not for production scale.
 3.  **Local First:** The entire system—data, code, and orchestration—will run locally. No cloud dependencies, no complex deployments. This eliminates entire categories of problems and keeps us focused on the core logic.
 4.  **Text is the Universal Interface:** We will lean heavily on structured text (specifically JSON) as the data contract between components. LLMs are good at text; Python is good at text. This is our common ground.
-5.  **No Magic:** We will avoid frameworks or libraries that hide too much logic. We need to know exactly what is happening at each step. Langflow is used as a visual orchestrator and API server, nothing more. The core logic resides in our Python code and our prompts.
+5.  **No Magic:** We will avoid frameworks or libraries that hide too much logic. We need to know exactly what is happening at each step. CrewAI provides a transparent, code-first approach where the orchestration logic is explicit Python code, not hidden behind visual abstractions.
 
 ### 2. Technology Stack
 
@@ -26,8 +26,8 @@ This is not a list of preferences; it is a strict definition of our toolkit. Add
 | **Python 3.10+**  | The core programming language for all custom logic.                  | Ubiquitous, excellent data science ecosystem, simple syntax. The default choice.                      |
 | **Pandas**      | Data manipulation and feature calculation.                           | The industry standard for handling tabular data like OHLCV. Fast and reliable for our needs.          |
 | **yfinance**    | Downloading historical stock data.                                   | Simple, free, and directly interfaces with Yahoo Finance. Good enough for historical backtesting.     |
-| **Langflow**    | Workflow orchestration and providing an API endpoint.                | A visual tool that meets our Low-Code objective. It lets us chain components and expose them via an API without writing boilerplate Flask/FastAPI code. |
-| **Kimi 2 (or equivalent large-context LLM)** | The core pattern recognition engine. | The PRD specifies this. We need a model capable of reasoning over numerical sequences and adhering to strict JSON output formats. |
+| **CrewAI**    | Multi-agent orchestration and workflow coordination.                | A lightweight, code-first framework for agent coordination. No visual complexity, pure Python control with transparent execution flow. |
+| **OpenAI API (or equivalent large-context LLM)** | The core pattern recognition engine. | We need a model capable of reasoning over numerical sequences and adhering to strict JSON output formats. CrewAI integrates seamlessly with various LLM providers. |
 | **CSV Files**   | Data storage for historical OHLCV and backtest results.              | The simplest possible persistent storage. Human-readable, easy to manipulate with `pandas`, no server required. |
 
 #### **Explicitly Excluded (The "No" List)**
@@ -38,27 +38,28 @@ This is not a list of preferences; it is a strict definition of our toolkit. Add
 | **Databases**               | (e.g., SQL, NoSQL). Overkill. Our data is read-only during a backtest run. A folder of CSVs is a perfectly functional database for this project. |
 | **Real-time Data Feeds**    | (e.g., Websockets, Kafka). Out of scope. We are building a backtesting system, not a live trading bot. This adds immense complexity for zero gain. |
 | **Cloud Services / Docker** | (e.g., AWS, GCP, Docker). Unnecessary deployment complexity. The goal is a working prototype, not a scalable production service. Run it locally. |
+| **Visual Workflow Builders** | (e.g., Langflow, n8n). While useful, they add a layer of abstraction. For rapid prototyping, direct Python code gives us more control and transparency. |
 | **Automated Feature Eng.**  | (e.g., `featuretools`). The PRD specifies a meta-agent for *suggesting* features. The actual engineering is a manual, deliberate process for v1.1. |
 
 ### 3. System Architecture & Data Flow
 
 The system is composed of two primary phases:
 1.  **Offline Data Preparation:** A one-time script to download all necessary historical data.
-2.  **Online Analysis Pipeline:** The core agentic workflow, orchestrated by Langflow, which is called repeatedly by the backtester script.
+2.  **Online Analysis Pipeline:** The core agentic workflow, orchestrated by CrewAI, which is called repeatedly by the backtester script.
 
 #### **Component Interaction Diagram**
 
-This diagram shows the static components and their connections as they will be built in Langflow.
+This diagram shows the static components and their connections as they will be built in CrewAI.
 
 ```mermaid
 graph TD
-    subgraph "Langflow API Endpoint"
+    subgraph "CrewAI Crew Execution"
         direction LR
         A[Input: stock_data_df, current_date] --> B(Agent 1: Data_Preprocessor);
         B -- preprocessed_data_string --> C(Agent 2: Pattern_Analyser);
         B -- current_price, current_atr --> E(Agent 4: Risk_Manager);
         
-        subgraph "Parallel Analysis"
+        subgraph "Sequential Agent Execution"
             direction TB
             C -- pattern_analysis_json --> F(Agent 5: Decision_Synthesizer);
             D(Agent 3: Market_Context_Analyser) -- market_context_json --> F;
@@ -82,7 +83,7 @@ This diagram shows the step-by-step execution flow, including the backtester.
 sequenceDiagram
     participant User
     participant backtester.py
-    participant Langflow_API
+    participant CrewAI_Crew
     participant Agent1_Preprocessor
     participant Agent2_Pattern
     participant Agent3_Context
@@ -92,21 +93,21 @@ sequenceDiagram
     User->>backtester.py: python backtester.py
     backtester.py->>backtester.py: Loop through each stock CSV
     backtester.py->>backtester.py: Loop through each date in stock data
-    backtester.py->>Langflow_API: POST /process_trade (stock_df, current_date)
-    Langflow_API->>Agent1_Preprocessor: Execute(stock_df, current_date)
-    Agent1_Preprocessor-->>Langflow_API: {preprocessed_data, price, atr}
+    backtester.py->>CrewAI_Crew: crew.kickoff(inputs={stock_df, current_date})
+    CrewAI_Crew->>Agent1_Preprocessor: Execute task(stock_df, current_date)
+    Agent1_Preprocessor-->>CrewAI_Crew: {preprocessed_data, price, atr}
     
-    Langflow_API->>Agent2_Pattern: Execute(preprocessed_data)
-    Langflow_API->>Agent3_Context: Execute(ticker)
-    Langflow_API->>Agent4_Risk: Execute(price, atr)
+    CrewAI_Crew->>Agent2_Pattern: Execute task(preprocessed_data)
+    CrewAI_Crew->>Agent3_Context: Execute task(ticker)
+    CrewAI_Crew->>Agent4_Risk: Execute task(price, atr)
 
-    Agent2_Pattern-->>Langflow_API: pattern_analysis_json
-    Agent3_Context-->>Langflow_API: market_context_json
-    Agent4_Risk-->>Langflow_API: risk_params_json
+    Agent2_Pattern-->>CrewAI_Crew: pattern_analysis_json
+    Agent3_Context-->>CrewAI_Crew: market_context_json
+    Agent4_Risk-->>CrewAI_Crew: risk_params_json
 
-    Langflow_API->>Agent5_Synthesizer: Execute(all_jsons)
-    Agent5_Synthesizer-->>Langflow_API: final_decision_json
-    Langflow_API-->>backtester.py: Response with final_decision_json
+    CrewAI_Crew->>Agent5_Synthesizer: Execute task(all_jsons)
+    Agent5_Synthesizer-->>CrewAI_Crew: final_decision_json
+    CrewAI_Crew-->>backtester.py: Return final_decision_json
 
     backtester.py->>backtester.py: If decision is "BUY", log trade to results.csv
     backtester.py->>User: Print progress...
@@ -161,20 +162,26 @@ emergent-alpha/
 ├── src/
 │   ├── agents/
 │   │   ├── data_preprocessor.py
-│   │   └── risk_manager.py
-│   └── langflow_components.py  # For custom Langflow components
+│   │   ├── pattern_analyser.py
+│   │   ├── market_context_analyser.py
+│   │   ├── risk_manager.py
+│   │   └── decision_synthesizer.py
+│   ├── tools/
+│   │   ├── data_tools.py
+│   │   └── market_tools.py
+│   └── crew.py  # Main CrewAI crew definition
 ├── results/
 │   └── backtest_results_YYYYMMDD_HHMM.csv
 ├── backtester.py
 ├── download_data.py
-└── langflow_export.json
+└── requirements.txt
 ```
 
 **`backtester.py` Execution Logic:**
 
 1.  **Initialization:**
     *   Load the list of stock tickers from `NIFTY200_list.csv`.
-    *   Define the Langflow API endpoint URL.
+    *   Initialize the CrewAI crew with all agents and their tasks.
     *   Create an empty list to hold trade results.
 2.  **Outer Loop (Stocks):**
     *   For each `ticker` in the list:
@@ -182,10 +189,10 @@ emergent-alpha/
 3.  **Inner Loop (Time):**
     *   For each `date` in the DataFrame's index (starting from day 61 to avoid lookback errors):
         *   Slice the DataFrame to get the required 240 days of data (60 for analysis + 200 for long-term MA + 20 for forward return check).
-        *   Prepare the payload for the Langflow API: the sliced DataFrame and the `current_date`.
-        *   **API Call:** Send a `POST` request to the Langflow endpoint. Use a `try-except` block to handle potential API errors or timeouts gracefully.
+        *   Prepare the inputs for the CrewAI crew: the sliced DataFrame and the `current_date`.
+        *   **Crew Execution:** Call `crew.kickoff(inputs={...})` to execute the agent workflow. Use a `try-except` block to handle potential execution errors gracefully.
         *   **Process Response:**
-            *   Parse the JSON response from the API.
+            *   Parse the JSON response from the crew execution.
             *   If `response['decision'] == 'BUY'`:
                 *   Calculate the actual 20-day forward return from the data.
                 *   Determine if the trade would have hit the `stop_loss` or `take_profit` within the 20 days.
@@ -200,7 +207,7 @@ emergent-alpha/
 
 The 2-day sprint plan from the PRD is aggressive but achievable with this architecture.
 
-*   **Day 1:** Focus on the standalone Python scripts (`download_data.py`, `data_preprocessor.py`, `risk_manager.py`). These can be written and unit-tested without Langflow. The prompts can be finalized in a text file.
-*   **Day 2:** The primary task is assembling the flow in Langflow, connecting the Python components, and configuring the LLM nodes. The `backtester.py` script is the final piece, tying everything together by calling the now-active Langflow API endpoint.
+*   **Day 1:** Focus on developing individual CrewAI agents and their tools (`download_data.py`, agent classes, tool functions). Each agent can be written and unit-tested independently. The prompts can be finalized as agent backstories and goals.
+*   **Day 2:** The primary task is assembling the crew in `crew.py`, defining tasks and their dependencies, and ensuring proper data flow between agents. The `backtester.py` script is the final piece, tying everything together by calling the crew execution method.
 
-This plan minimizes dependencies and allows for parallel work. The Python functions are developed independently of the final orchestration, which is a simple assembly task on Day 2.
+This plan minimizes dependencies and allows for parallel work. The individual agents are developed independently of the final orchestration, which is a simple assembly task on Day 2.

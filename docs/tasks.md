@@ -12,9 +12,10 @@
         *   `data/ohlcv/`
         *   `src/`
         *   `src/agents/`
+        *   `src/tools/`
         *   `results/`
     3.  Set up a Python 3.10+ virtual environment (e.g., using `venv`).
-    4.  Install all required packages from the "Chosen Stack": `pandas`, `yfinance`, `langflow`.
+    4.  Install all required packages from the "Chosen Stack": `pandas`, `yfinance`, `crewai`.
     5.  Create a `requirements.txt` file to lock down dependencies.
     6.  Initialize a Git repository and create an initial commit with the directory structure.
     7.  Create a placeholder `NIFTY200_list.csv` file in the `data/` directory and populate it with a list of stock tickers (e.g., `RELIANCE.NS`, `TCS.NS`, etc.).
@@ -59,92 +60,132 @@
 
 ### **Phase 2: Core Logic Implementation (Day 1)**
 
-#### **Task 3: Develop Python Agent Logic**
+#### **Task 3: Develop CrewAI Agents and Tools**
 
-*   **Goal:** Implement the core data processing and risk calculation logic as standalone Python functions.
-*   **Source:** PRD (Agents 1 & 4), Architecture Document (Section 4, 6)
+*   **Goal:** Implement the core agent logic and supporting tools using CrewAI framework.
+*   **Source:** PRD (Agents 1-5), Architecture Document (Section 4, 6)
 
 *   **Sub-items to Implement:**
-    1.  **`Data_Preprocessor` (in `src/agents/data_preprocessor.py`):**
-        *   Create a function `preprocess_data(stock_dataframe, current_date)`.
+    1.  **Data Processing Tools (in `src/tools/data_tools.py`):**
+        *   Create a `preprocess_data(stock_dataframe, current_date)` function.
         *   Implement logic to select the last 60 trading days up to `current_date`.
         *   Calculate 50-day SMA, 200-day SMA, and 14-day ATR using the full dataframe for lookback.
         *   Normalize the 60-day window's close prices and volumes to a 0-1 scale.
         *   Format the output string (`preprocessed_data_string`) exactly as required for the LLM prompt.
-        *   The function must return three distinct values: `preprocessed_data_string`, `current_price`, `current_atr`.
-    2.  **`Risk_Manager` (in `src/agents/risk_manager.py`):**
-        *   Create a function `calculate_risk_params(current_price, current_atr)`.
-        *   Implement the stop-loss calculation: `current_price - (2 * current_atr)`.
-        *   Implement the take-profit calculation: `current_price + (4 * current_atr)`.
-        *   The function must return a dictionary matching the JSON schema: `{"stop_loss": value, "take_profit": value}`.
-    3.  **Unit Testing:**
-        *   Create a simple test script or use `assert` statements to verify that both functions produce the correct output and data types for a known sample input DataFrame.
+        *   Create a `calculate_risk_params(current_price, current_atr)` function for stop-loss and take-profit calculations.
+    2.  **Market Tools (in `src/tools/market_tools.py`):**
+        *   Create functions to fetch sector indices and VIX data using `yfinance`.
+        *   Implement sector mapping logic (e.g., "RELIANCE.NS" -> `^CNXENERGY`).
+        *   Create trend calculation functions for market context analysis.
+    3.  **CrewAI Agents (in `src/agents/`):**
+        *   **`data_preprocessor.py`**: Create DataPreprocessor agent with access to data tools.
+        *   **`pattern_analyser.py`**: Create PatternAnalyser agent with LLM capability for emergent pattern recognition.
+        *   **`market_context_analyser.py`**: Create MarketContextAnalyser agent with market tools and LLM capability.
+        *   **`risk_manager.py`**: Create RiskManager agent with risk calculation tools.
+        *   **`decision_synthesizer.py`**: Create DecisionSynthesizer agent with LLM capability for final decisions.
+    4.  **Agent Configuration:**
+        *   Define each agent's role, goal, backstory, and available tools.
+        *   Ensure agents have appropriate LLM access where needed.
+        *   Configure agents to output structured JSON responses.
+    5.  **Unit Testing:**
+        *   Create simple test scripts to verify each tool and agent works independently.
+        *   Test with known sample data to ensure correct outputs and data types.
 
 *   **Acceptance Criteria (AC):**
-    *   The `preprocess_data` function correctly calculates all metrics and returns the three specified outputs in their correct formats.
-    *   The `calculate_risk_params` function correctly calculates SL/TP and returns a dictionary.
-    *   Unit tests pass for both functions.
+    *   All tool functions correctly calculate metrics and return data in the specified formats.
+    *   All CrewAI agents are properly configured with roles, goals, and tools.
+    *   Each agent can execute independently and produce structured outputs.
+    *   Unit tests pass for all tools and agents.
 
 *   **Definition of Done (DoD):**
-    *   Both Python files (`data_preprocessor.py`, `risk_manager.py`) are created and fully implemented.
-    *   The code is clean, commented, and committed to version control.
+    *   All Python files in `src/tools/` and `src/agents/` are created and fully implemented.
+    *   The code is clean, commented, and follows CrewAI best practices.
+    *   All files are committed to version control.
 
 ---
 
-#### **Task 4: Finalize All LLM Prompts**
+#### **Task 4: Finalize Agent Prompts and CrewAI Configuration**
 
-*   **Goal:** Transcribe and refine all LLM prompts, ensuring they adhere to the architectural principles.
+*   **Goal:** Define agent prompts, roles, and goals that integrate seamlessly with CrewAI framework.
 *   **Source:** PRD (Section 5), Architecture Document (Section 5)
 
 *   **Sub-items to Implement:**
-    1.  Create a central file (e.g., `prompts.md`) or separate text files to store the prompts.
-    2.  Finalize the **`Pattern_Analyser`** prompt, ensuring it explicitly forbids jargon and demands a JSON output with `pattern_description`, `pattern_strength_score`, and `rationale`.
-    3.  Finalize the **`Market_Context_Analyser`** prompt, ensuring it demands a JSON output with `sector_trend` and `vix_analysis`.
-    4.  Finalize the **`Decision_Synthesizer`** prompt, ensuring it includes the strict decision rules and demands a JSON output with `decision`, `confidence_score`, and `summary_rationale`.
-    5.  Finalize the **`Feature_Suggester`** prompt for offline use.
-    6.  Review every prompt to confirm it follows the principles: Role-Playing, Strict Instructions, and Structured JSON Output.
+    1.  **Agent Role Definitions:**
+        *   Define clear roles for each agent (e.g., "Expert Quantitative Analyst" for PatternAnalyser).
+        *   Create compelling backstories that prime the LLM for the specific task.
+        *   Set specific, measurable goals for each agent.
+    2.  **Prompt Integration with CrewAI:**
+        *   Adapt the **`Pattern_Analyser`** prompt as the agent's goal and expected output format.
+        *   Adapt the **`Market_Context_Analyser`** prompt for market analysis tasks.
+        *   Adapt the **`Decision_Synthesizer`** prompt with strict decision rules and JSON output requirements.
+        *   Ensure all prompts follow CrewAI's agent configuration patterns.
+    3.  **Task Definitions:**
+        *   Create specific tasks for each agent that clearly define inputs, processing requirements, and expected outputs.
+        *   Define task dependencies and execution order.
+        *   Ensure tasks output structured JSON for seamless data flow.
+    4.  **Agent Communication Protocol:**
+        *   Define how agents will pass data between each other.
+        *   Establish clear input/output contracts for each agent.
+        *   Ensure JSON schema consistency across all agent interactions.
+    5.  **Configuration Validation:**
+        *   Create a simple script to validate that all agent configurations are properly formatted.
+        *   Test that agents can be instantiated without errors.
 
 *   **Acceptance Criteria (AC):**
-    *   All four prompts are documented and exactly match the specifications in the PRD.
-    *   The JSON output format is explicitly defined within each prompt's text.
+    *   All five agents have well-defined roles, goals, and backstories.
+    *   Agent tasks clearly specify input/output requirements and JSON schemas.
+    *   All agents can be instantiated and configured without errors.
 
 *   **Definition of Done (DoD):**
-    *   The file(s) containing the final prompts are created and committed to version control.
+    *   Agent configurations are documented and integrated into the agent classes.
+    *   Configuration validation scripts pass successfully.
+    *   All agent definitions are committed to version control.
 
 ---
 
 ### **Phase 3: Integration & Orchestration (Day 2)**
 
-#### **Task 5: Build and Test the Langflow Workflow**
+#### **Task 5: Build and Test the CrewAI Workflow**
 
-*   **Goal:** Assemble all components into a functional pipeline in Langflow and expose it as an API.
+*   **Goal:** Assemble all agents into a functional crew and test the complete workflow.
 *   **Source:** Architecture Document (Section 3), PRD (Section 4)
 
 *   **Sub-items to Implement:**
-    1.  Start the Langflow server.
-    2.  Create a new flow named "Emergent Alpha v1.0".
-    3.  Create custom Langflow components for the Python functions from Task 3. This may involve creating a `src/langflow_components.py` file to wrap the agent functions for easy import into Langflow.
-    4.  Drag and drop all required nodes onto the canvas, recreating the `Component Interaction Diagram`:
-        *   API Input node.
-        *   `Data_Preprocessor` custom component.
-        *   `Pattern_Analyser` LLM node.
-        *   `Market_Context_Analyser` LLM node (and its preceding Python logic for getting context data).
-        *   `Risk_Manager` custom component.
-        *   `Decision_Synthesizer` LLM node.
-        *   API Output node.
-    5.  Connect the nodes exactly as shown in the diagram.
-    6.  Configure each LLM node with the correct prompt text from Task 4 and connect it to the Kimi 2 (or equivalent) model.
-    7.  Test the flow end-to-end using the Langflow UI with sample data to ensure data flows correctly and the final output is a valid JSON.
-    8.  Export the final, working flow as `langflow_export.json` and save it in the project root.
+    1.  **Create Main Crew Configuration (`src/crew.py`):**
+        *   Import all agent classes from the agents module.
+        *   Import all required tools from the tools module.
+        *   Define the main crew with all five agents.
+        *   Configure agent assignments and tool access.
+    2.  **Define Crew Tasks:**
+        *   Create sequential tasks that match the `Component Interaction Diagram`.
+        *   Task 1: Data preprocessing with DataPreprocessor agent.
+        *   Task 2: Pattern analysis with PatternAnalyser agent.
+        *   Task 3: Market context analysis with MarketContextAnalyser agent.
+        *   Task 4: Risk calculations with RiskManager agent.
+        *   Task 5: Final decision synthesis with DecisionSynthesizer agent.
+    3.  **Configure Task Dependencies:**
+        *   Ensure proper data flow between tasks.
+        *   Set up context sharing between agents.
+        *   Define input/output mappings for each task.
+    4.  **Crew Execution Logic:**
+        *   Create a `process_stock_analysis()` function that takes stock data and date as inputs.
+        *   Implement crew.kickoff() with proper input formatting.
+        *   Add error handling for crew execution failures.
+    5.  **End-to-End Testing:**
+        *   Test the complete crew workflow with sample stock data.
+        *   Verify that each agent executes in sequence and produces expected outputs.
+        *   Validate that the final output matches the Decision_Synthesizer JSON schema.
+        *   Test error handling with invalid or missing data.
 
 *   **Acceptance Criteria (AC):**
-    *   The Langflow graph visually and functionally matches the architecture diagram.
-    *   Sending a test request via the Langflow API endpoint returns a `200 OK` status and a valid JSON response.
-    *   The JSON response schema matches the output defined for the `Decision_Synthesizer`.
+    *   The CrewAI crew executes all agents in the correct sequence.
+    *   Sample crew execution returns a valid JSON response matching the expected schema.
+    *   Error handling works correctly for various failure scenarios.
 
 *   **Definition of Done (DoD):**
-    *   The Langflow workflow is fully assembled, tested, and operational.
-    *   The `langflow_export.json` file is saved and committed to version control.
+    *   The `src/crew.py` file is fully implemented and tested.
+    *   End-to-end crew execution is successful with sample data.
+    *   All crew configuration and test files are committed to version control.
 
 ---
 
@@ -158,18 +199,18 @@
 *   **Sub-items to Implement:**
     1.  Create the file `backtester.py` in the project root.
     2.  **Initialization:**
-        *   Import necessary libraries (`pandas`, `requests`, `os`, `datetime`).
-        *   Define the Langflow API endpoint URL.
+        *   Import necessary libraries (`pandas`, `os`, `datetime`) and the CrewAI crew.
+        *   Initialize the crew from `src/crew.py`.
         *   Load the list of tickers from `data/NIFTY200_list.csv`.
     3.  **Looping Logic:**
         *   Implement the outer loop to iterate through each stock ticker.
         *   Implement the inner loop to iterate through each valid date in the stock's DataFrame (ensuring enough lookback data).
-    4.  **API Interaction:**
+    4.  **Crew Execution:**
         *   Inside the loop, slice the DataFrame to get the required data window.
-        *   Prepare the JSON payload for the `POST` request to the Langflow API.
-        *   Implement the `requests.post()` call within a `try-except` block to handle API errors gracefully.
+        *   Prepare the inputs dictionary for the crew execution.
+        *   Implement the `crew.kickoff(inputs={...})` call within a `try-except` block to handle execution errors gracefully.
     5.  **Response Processing:**
-        *   Parse the JSON response from the API.
+        *   Parse the JSON response from the crew execution.
         *   If the `decision` is "BUY", proceed to log the trade.
         *   Calculate the actual 20-day forward return from the historical data.
         *   Determine the trade `outcome` by checking if the `stop_loss` or `take_profit` was hit within the 20-day window.
@@ -204,7 +245,7 @@
         *   Is the Win Rate > 55%?
         *   Is the Profit Factor > 1.5?
     5.  Perform a qualitative review of 10-15 "BUY" rationales from the results to assess if they are logical.
-    6.  Run the `Feature_Suggester` agent by sending its prompt to the LLM and save the output.
+    6.  Run the `Feature_Suggester` agent by creating a separate crew or using the agent directly with its prompt.
     7.  Document the final results and findings in a `README.md` file.
 
 *   **Acceptance Criteria (AC):**

@@ -9,7 +9,7 @@
 
 **Project "Emergent Alpha"** is a rapid-development initiative to create a decision-support system for identifying 20-day "buy" opportunities in Indian large and mid-cap stocks. The core philosophy blends Geoffrey Hinton's approach of discovering emergent patterns from raw data with Kailash Nadh's pragmatic focus on simplicity, speed, and using minimal, robust tools.
 
-The system will be built as an agentic workflow using Langflow (or a similar orchestration tool) and Python. It will ingest standard OHLCV data and leverage a Large Language Model (LLM) as a general-purpose pattern recognition engine, avoiding hard-coded technical analysis rules. The goal is to have a functional, backtestable prototype within a 2-day sprint.
+The system will be built as an agentic workflow using CrewAI and Python. CrewAI provides a lightweight, code-first approach to multi-agent orchestration without the overhead of visual workflow builders. It will ingest standard OHLCV data and leverage a Large Language Model (LLM) as a general-purpose pattern recognition engine, avoiding hard-coded technical analysis rules. The goal is to have a functional, backtestable prototype within a 2-day sprint.
 
 ### 2. Goal & Objectives
 
@@ -17,7 +17,7 @@ The system will be built as an agentic workflow using Langflow (or a similar orc
 
 **Key Objectives (v1.0):**
 1.  **Rapid Prototyping:** Implement a working end-to-end system in under 48 hours.
-2.  **Low-Code:** Maximize the use of Langflow and LLM prompts to minimize custom Python code.
+2.  **Code-First:** Use CrewAI's simple Python-based agent framework to maintain full control and transparency.
 3.  **Emergent Analysis:** Empower the LLM to identify patterns from numerical sequences rather than enforcing pre-defined technical indicators.
 4.  **Backtestability:** Create a simple framework to run the system over historical data and evaluate its performance.
 5.  **Modularity:** Design the system with distinct, swappable agents for easy experimentation.
@@ -31,12 +31,12 @@ The system will be built as an agentic workflow using Langflow (or a similar orc
 | 20-day fixed holding period for backtesting              | Dynamic exit strategies or trailing stop-losses             |
 | Input from a single OHLCV CSV file per stock             | Real-time data feeds or multiple data sources (news, etc.)  |
 | Backtesting on historical data                           | Live trading execution or paper trading integration         |
-| Use of Langflow, Python, `pandas`, `yfinance`            | Complex machine learning models (e.g., LSTMs, Transformers) |
+| Use of CrewAI, Python, `pandas`, `yfinance`              | Complex machine learning models (e.g., LSTMs, Transformers) |
 | A meta-agent for suggesting feature improvements         | Automated feature engineering and selection                 |
 
 ### 4. System Architecture & Flow Diagram
 
-The system operates as a sequential pipeline where the output of one agent becomes the input for the next. The orchestration will be managed by Langflow.
+The system operates as a crew of specialized agents coordinated by CrewAI. Each agent has a specific role and expertise, working together sequentially to analyze stock data and make trading decisions. The orchestration is managed through simple Python code, maintaining transparency and control.
 
 **High-Level Flow:**
 
@@ -65,7 +65,7 @@ This section details each agent in the flow.
 #### **Agent 1: `Data_Preprocessor`**
 
 *   **Purpose:** To ingest the raw OHLCV data, calculate necessary metrics, and format it into a clean, LLM-friendly text block.
-*   **Type:** Python Function (implemented as a Langflow "Custom Component").
+*   **Type:** CrewAI Agent with Python tools.
 *   **Inputs:**
     *   `stock_dataframe`: A pandas DataFrame from the OHLCV CSV.
     *   `current_date`: The date for which the analysis is being performed.
@@ -89,7 +89,7 @@ This section details each agent in the flow.
 #### **Agent 2: `Pattern_Analyser` (The Hinton Core)**
 
 *   **Purpose:** To analyze the numerical data provided by the preprocessor and identify emergent patterns indicative of a potential upward move, without being biased by human-defined pattern names.
-*   **Type:** LLM Call (Langflow "LLM" node with Kimi 2).
+*   **Type:** CrewAI Agent with LLM capability.
 *   **Input:** `preprocessed_data_string` from Agent 1.
 *   **Initial Prompt:**
     ```
@@ -118,13 +118,13 @@ This section details each agent in the flow.
 #### **Agent 3: `Market_Context_Analyser`**
 
 *   **Purpose:** To provide broader market and sector context to avoid taking good trades in a bad environment.
-*   **Type:** Python Function + LLM Call.
+*   **Type:** CrewAI Agent with Python tools and LLM capability.
 *   **Input:** `stock_ticker` (e.g., "RELIANCE.NS").
 *   **Processing Logic:**
-    1.  **(Python)** A mapping function determines the stock's sector index (e.g., "RELIANCE.NS" -> `^CNXENERGY`).
-    2.  **(Python)** Use `yfinance` to download the last 60 days of data for the relevant sector index and for India VIX (`^INDIAVIX`).
-    3.  **(Python)** Calculate the recent trend of the sector (e.g., percentage change over 20 days) and the current level of VIX.
-    4.  **(LLM)** Pass this information to a simple LLM prompt to classify the context.
+    1.  **(Python Tool)** A mapping function determines the stock's sector index (e.g., "RELIANCE.NS" -> `^CNXENERGY`).
+    2.  **(Python Tool)** Use `yfinance` to download the last 60 days of data for the relevant sector index and for India VIX (`^INDIAVIX`).
+    3.  **(Python Tool)** Calculate the recent trend of the sector (e.g., percentage change over 20 days) and the current level of VIX.
+    4.  **(LLM)** Pass this information to the agent's LLM capability to classify the context.
 *   **Initial Prompt (for the LLM part):**
     ```
     Analyze the following market context data and provide a simple classification.
@@ -147,7 +147,7 @@ This section details each agent in the flow.
 #### **Agent 4: `Risk_Manager`**
 
 *   **Purpose:** To calculate a predefined stop-loss and take-profit target for any potential trade.
-*   **Type:** Python Function.
+*   **Type:** CrewAI Agent with Python tools.
 *   **Inputs:**
     *   `current_price` from Agent 1.
     *   `current_atr` from Agent 1.
@@ -161,7 +161,7 @@ This section details each agent in the flow.
 #### **Agent 5: `Decision_Synthesizer`**
 
 *   **Purpose:** The final decision-making agent. It integrates all prior analyses and makes the final "BUY" or "PASS" call based on a set of rules.
-*   **Type:** LLM Call.
+*   **Type:** CrewAI Agent with LLM capability.
 *   **Inputs:**
     *   Output from `Pattern_Analyser`.
     *   Output from `Market_Context_Analyser`.
@@ -195,8 +195,8 @@ This section details each agent in the flow.
 
 #### **Agent 6: `Feature_Suggester` (Offline Meta-Agent)**
 
-*   **Purpose:** To provide ideas on how to improve the system's predictive power by adding new features. This agent is run manually, not as part of the main flow.
-*   **Type:** LLM Call.
+*   **Purpose:** To provide ideas on how to improve the system's predictive power by adding new features. This agent is run manually, not as part of the main crew.
+*   **Type:** CrewAI Agent with LLM capability.
 *   **Input:** A manually written prompt describing the current system.
 *   **Initial Prompt:**
     ```
@@ -211,17 +211,17 @@ This section details each agent in the flow.
 
 **Day 1: Component Build & Unit Test (8 Hours)**
 
-*   **(1 hr) Setup:** Environment setup (`Python`, `Langflow`, `pandas`, `yfinance`).
+*   **(1 hr) Setup:** Environment setup (`Python`, `CrewAI`, `pandas`, `yfinance`).
 *   **(2 hrs) Data Acquisition:** Write a Python script to download historical OHLCV data for Nifty 200 stocks from `yfinance` and save them as individual CSVs.
-*   **(3 hrs) Agent Development (Python):** Code the Python functions for `Data_Preprocessor` and `Risk_Manager`. Test them with a sample CSV to ensure they produce the correct outputs.
-*   **(2 hrs) Prompt Engineering:** Draft and refine the initial prompts for `Pattern_Analyser`, `Market_Context_Analyser`, and `Decision_Synthesizer` in a text editor.
+*   **(3 hrs) Agent Development:** Create CrewAI agents with their respective tools and capabilities. Define agent roles, goals, and backstories. Test individual agents with sample data to ensure they produce correct outputs.
+*   **(2 hrs) Prompt Engineering:** Draft and refine the prompts for agents that use LLM capabilities (`Pattern_Analyser`, `Market_Context_Analyser`, and `Decision_Synthesizer`).
 
 **Day 2: Integration, Backtesting, and Review (8 Hours)**
 
-*   **(3 hrs) Langflow Integration:** Assemble the entire workflow in the Langflow UI. Create custom components for the Python functions and configure the LLM nodes with the prompts. Test the end-to-end flow with a single stock's data to ensure data is passed correctly.
+*   **(3 hrs) CrewAI Integration:** Assemble the crew of agents in Python code. Define tasks for each agent and set up the sequential workflow. Create a simple main script that orchestrates the crew execution. Test the end-to-end flow with a single stock's data to ensure data flows correctly between agents.
 *   **(4 hrs) Backtester Script:** Write a master Python script (`backtester.py`) that:
     *   Loops through all downloaded stock CSVs.
-    *   For each day in the historical data, it calls the Langflow API endpoint with the required 60-day lookback data.
+    *   For each day in the historical data, it instantiates the crew with the required 60-day lookback data.
     *   Logs the `BUY` signals, entry price, and calculates the actual 20-day forward return.
     *   Saves all trades and their outcomes to a `results.csv` file.
 *   **(1 hr) Analysis & Review:** Use pandas to analyze `results.csv`. Calculate key performance metrics. Run the `Feature_Suggester` agent to get ideas for v1.1.
