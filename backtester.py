@@ -3,62 +3,81 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Any
 
-from src.data_preprocessor import preprocess_data
+from src.data_preprocessor import normalize_window
 from src.pattern_scorer import score
 from src.risk_manager import calculate_risk_parameters
 
+# --- Constants ---
+LOOKBACK_WINDOW = 40
+SMA_PERIOD = 50
+ATR_PERIOD = 14
+HOLDING_PERIOD = 20
+SCORE_THRESHOLD = 7.0
 
+
+def _calculate_atr(data: pd.DataFrame, period: int) -> pd.Series:
+    """Helper to calculate Average True Range."""
+    high_low = data["High"] - data["Low"]
+    high_close = (data["High"] - data["Close"].shift()).abs()
+    low_close = (data["Low"] - data["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return tr.rolling(window=period).mean()
+
+
+# impure
 def run_backtest(ticker: str, data_path: Path, results_path: Path):
     """
     Runs the deterministic backtest for a single ticker.
-    This function is now silent and produces only the results file.
+    This function reads a data file and writes a results file.
     """
     try:
         full_data = pd.read_csv(data_path, index_col="Date", parse_dates=True)
-    except FileNotFoundError:
-        # Per H-12 (Zero silent failures), this should not be a bare return.
-        # However, without a logger, printing is disallowed (H-18).
-        # Re-raising is an option, but for a batch script, continuing may be desired.
-        # For this MVP, we will exit silently on file-not-found.
-        return
+    except FileNotFoundError as e:
+        # Per H-12, re-raise exceptions rather than failing silently.
+        # Per H-18, do not use print() in library code.
+        raise e
 
-    # --- Pre-calculate indicators for the whole series ---
-    full_data["sma50"] = full_data["Close"].rolling(window=50).mean()
+    # --- Pre-calculate all indicators once for efficiency ---
+    full_data["sma50"] = full_data["Close"].rolling(window=SMA_PERIOD).mean()
+    full_data["atr14"] = _calculate_atr(full_data, period=ATR_PERIOD)
+
+    # Drop rows with NaN indicators to ensure data integrity for backtest loop
+    full_data.dropna(inplace=True)
+
+    if len(full_data) < HOLDING_PERIOD:
+        # Not enough data to run a single backtest after accounting for indicators
+        return
 
     trades: List[Dict[str, Any]] = []
 
-    # Loop through each date, starting after a safe buffer (e.g., 50 for SMA)
-    for analysis_date in full_data.index[50:]:
-        analysis_date_str = analysis_date.strftime("%Y-%m-%d")
-        processed = preprocess_data(full_data, analysis_date_str)
+    # Loop through each valid date in the pre-processed data
+    for i in range(len(full_data) - HOLDING_PERIOD):
+        analysis_date = full_data.index[i]
 
-        if not processed:
-            continue
+        # Define the window for analysis
+        start_loc = max(0, i - LOOKBACK_WINDOW + 1)
+        window_df_raw = full_data.iloc[start_loc : i + 1]
 
-        window_data, current_price, current_atr = processed
+        # Normalize the window for the scorer
+        window_df_normalized = normalize_window(window_df_raw)
+
+        current_price = full_data.loc[analysis_date, "Close"]
         current_sma50 = full_data.loc[analysis_date, "sma50"]
+        current_atr = full_data.loc[analysis_date, "atr14"]
 
-        score_result = score(window_data, current_price, current_sma50)
+        score_result = score(window_df_normalized, current_price, current_sma50)
         pattern_score = score_result["pattern_strength_score"]
 
-        # Decision rule: BUY if score is 7.0 or higher
-        if pattern_score >= 7.0:
+        if pattern_score >= SCORE_THRESHOLD:
             risk_params = calculate_risk_parameters(current_price, current_atr)
 
-            # Calculate trade outcome over a 20-day holding period
-            entry_date_loc = full_data.index.get_loc(analysis_date)
-            exit_date_loc = min(entry_date_loc + 20, len(full_data) - 1)
-            exit_date = full_data.index[exit_date_loc]
+            # Calculate trade outcome over the holding period
+            exit_date = full_data.index[i + HOLDING_PERIOD]
             exit_price = full_data.loc[exit_date, "Close"]
+            return_pct = ((exit_price - current_price) / current_price) * 100
 
-            return_pct = (
-                ((exit_price - current_price) / current_price) * 100
-                if current_price != 0
-                else 0
-            )
-
-            trade_log = {
-                "entry_date": analysis_date_str,
+            trades.append({
+                "entry_date": analysis_date.strftime("%Y-%m-%d"),
                 "ticker": ticker,
                 "entry_price": round(current_price, 2),
                 "pattern_score": pattern_score,
@@ -68,8 +87,7 @@ def run_backtest(ticker: str, data_path: Path, results_path: Path):
                 "exit_date": exit_date.strftime("%Y-%m-%d"),
                 "exit_price": round(exit_price, 2),
                 "return_pct": round(return_pct, 2),
-            }
-            trades.append(trade_log)
+            })
 
     if not trades:
         return
