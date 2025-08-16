@@ -2,60 +2,59 @@ import pandas as pd
 import pytest
 import numpy as np
 
-from src.data_preprocessor import normalize_window
+from src.data_preprocessor import preprocess_data
 
 
 @pytest.fixture
-def sample_window_df() -> pd.DataFrame:
-    """Creates a sample DataFrame representing a window of data."""
-    dates = pd.to_datetime(pd.date_range(start="2023-01-01", periods=40))
+def sample_ohlcv_df() -> pd.DataFrame:
+    """Creates a sample OHLCV DataFrame with enough data for indicators."""
+    dates = pd.to_datetime(pd.date_range(start="2023-01-01", periods=100))
     data = {
-        "Open": np.linspace(100, 150, 40),
-        "High": np.linspace(102, 152, 40),
-        "Low": np.linspace(98, 148, 40),
-        "Close": np.linspace(101, 151, 40),
-        "Volume": np.linspace(1000, 2000, 40),
+        "Open": np.linspace(100, 200, 100),
+        "High": np.linspace(102, 202, 100),
+        "Low": np.linspace(98, 198, 100),
+        "Close": np.linspace(101, 201, 100),
+        "Volume": np.linspace(1000, 2000, 100),
     }
     df = pd.DataFrame(data, index=dates)
     df.index.name = "Date"
     return df
 
 
-def test_normalize_window_happy_path(sample_window_df: pd.DataFrame):
-    """Tests that normalization works correctly on a typical window."""
-    normalized_df = normalize_window(sample_window_df)
+def test_preprocess_data_adds_columns(sample_ohlcv_df: pd.DataFrame):
+    """Tests that preprocess_data adds the expected sma50 and atr14 columns."""
+    processed_df = preprocess_data(sample_ohlcv_df, sma_period=50, atr_period=14)
 
-    assert "close_normalized" in normalized_df.columns
-    assert "volume_normalized" in normalized_df.columns
-
-    # Check that min is 0 and max is 1
-    assert normalized_df["close_normalized"].min() == pytest.approx(0.0)
-    assert normalized_df["close_normalized"].max() == pytest.approx(1.0)
-    assert normalized_df["volume_normalized"].min() == pytest.approx(0.0)
-    assert normalized_df["volume_normalized"].max() == pytest.approx(1.0)
-
-    # Check that the last value is the max (since the data is a linspace)
-    assert normalized_df["close_normalized"].iloc[-1] == pytest.approx(1.0)
+    assert "sma50" in processed_df.columns
+    assert "atr14" in processed_df.columns
 
 
-def test_normalize_window_flat_data(sample_window_df: pd.DataFrame):
-    """Tests that normalization handles flat data without division-by-zero errors."""
-    # Test flat close price
-    flat_close_df = sample_window_df.copy()
-    flat_close_df["Close"] = 100
-    normalized_df = normalize_window(flat_close_df)
-    assert "close_normalized" in normalized_df.columns
-    assert (normalized_df["close_normalized"] == 0.5).all()
+def test_preprocess_data_removes_nans(sample_ohlcv_df: pd.DataFrame):
+    """Tests that no NaN values exist in the processed DataFrame."""
+    processed_df = preprocess_data(sample_ohlcv_df, sma_period=50, atr_period=14)
 
-    # Test flat volume
-    flat_volume_df = sample_window_df.copy()
-    flat_volume_df["Volume"] = 1000
-    normalized_df = normalize_window(flat_volume_df)
-    assert "volume_normalized" in normalized_df.columns
-    assert (normalized_df["volume_normalized"] == 0.0).all()
+    assert not processed_df.isnull().values.any()
+    # The first 49 rows of the original df should be dropped due to SMA(50) calculation.
+    assert len(processed_df) == len(sample_ohlcv_df) - 49
 
-def test_normalize_window_is_pure(sample_window_df: pd.DataFrame):
+
+def test_preprocess_data_is_pure(sample_ohlcv_df: pd.DataFrame):
     """Tests that the function does not modify the original DataFrame."""
-    original_df = sample_window_df.copy()
-    normalize_window(original_df)
-    assert "close_normalized" not in original_df.columns, "Function should not mutate the original DataFrame"
+    original_df_copy = sample_ohlcv_df.copy()
+    preprocess_data(sample_ohlcv_df, sma_period=50, atr_period=14)
+
+    assert "sma50" not in sample_ohlcv_df.columns, "Function should not mutate the original DataFrame"
+    assert "atr14" not in sample_ohlcv_df.columns, "Function should not mutate the original DataFrame"
+    pd.testing.assert_frame_equal(original_df_copy, sample_ohlcv_df)
+
+
+def test_preprocess_data_calculation(sample_ohlcv_df: pd.DataFrame):
+    """Performs a sanity check on the first calculated SMA value."""
+    processed_df = preprocess_data(sample_ohlcv_df, sma_period=50, atr_period=14)
+
+    # The first row of the processed_df corresponds to the 50th row (index 49)
+    # of the original dataframe.
+    expected_sma = sample_ohlcv_df["Close"].iloc[0:50].mean()
+    actual_sma = processed_df["sma50"].iloc[0]
+
+    assert actual_sma == pytest.approx(expected_sma)

@@ -1,42 +1,39 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
 
-__all__ = ["normalize_window"]
+__all__ = ["preprocess_data"]
 
 
-def normalize_window(window_df: pd.DataFrame) -> pd.DataFrame:
+def _calculate_atr(df: pd.DataFrame, period: int) -> pd.Series:
+    """Calculates the Average True Range (ATR)."""
+    high_low = df["High"] - df["Low"]
+    high_close = (df["High"] - df["Close"].shift()).abs()
+    low_close = (df["Low"] - df["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(
+        axis=1, skipna=False
+    )
+    return tr.rolling(window=period).mean()
+
+
+def preprocess_data(
+    df: pd.DataFrame, sma_period: int, atr_period: int
+) -> pd.DataFrame:
     """
-    Normalizes the 'Close' and 'Volume' columns of a DataFrame to a 0-1 scale.
-
-    This is a pure transformation function. It assumes the input DataFrame
-    is valid and ready for normalization.
+    Calculates all required technical indicators and cleans the DataFrame.
 
     Args:
-        window_df: A DataFrame containing 'Close' and 'Volume' columns.
+        df: The raw OHLCV DataFrame, indexed by Date.
+        sma_period: The period for the simple moving average.
+        atr_period: The period for the Average True Range.
 
     Returns:
-        The DataFrame with added 'close_normalized' and 'volume_normalized' cols.
+        A DataFrame with calculated indicators and NaN rows dropped.
     """
-    df = window_df.copy()
+    processed_df = df.copy()
+    processed_df.sort_index(inplace=True)
+    processed_df["sma50"] = processed_df["Close"].rolling(window=sma_period).mean()
+    processed_df["atr14"] = _calculate_atr(processed_df, atr_period)
 
-    # Normalize 'Close'
-    close_min = df["Close"].min()
-    close_max = df["Close"].max()
-    if close_max > close_min:
-        df["close_normalized"] = (df["Close"] - close_min) / (
-            close_max - close_min
-        )
-    else:
-        df["close_normalized"] = 0.5  # Neutral value if price is flat
-
-    # Normalize 'Volume'
-    volume_min = df["Volume"].min()
-    volume_max = df["Volume"].max()
-    if volume_max > volume_min:
-        df["volume_normalized"] = (df["Volume"] - volume_min) / (
-            volume_max - volume_min
-        )
-    else:
-        df["volume_normalized"] = 0.0  # No volume surge if volume is flat
-
-    return df
+    # Drop rows with NaNs from indicator calculations
+    processed_df.dropna(inplace=True)
+    return processed_df
