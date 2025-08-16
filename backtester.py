@@ -1,118 +1,158 @@
-import pandas as pd
-import argparse
-from pathlib import Path
-from typing import List, Dict, Any
+# -*- coding: utf-8 -*-
+"""
+A simple, deterministic backtester for a single ticker.
 
-from src.data_preprocessor import normalize_window
+This script iterates through historical data, applies a scoring model,
+and logs hypothetical trades to a CSV file.
+
+Usage:
+    python backtester.py --ticker data/ohlcv/RELIANCE.NS.sample.csv
+"""
+import argparse
+import sys
+from typing import Dict, List, Any
+
+import pandas as pd
+
 from src.pattern_scorer import score
 from src.risk_manager import calculate_risk_parameters
 
-# --- Constants ---
+# --- Configuration ---
+# The number of historical data points required for feature calculations.
 LOOKBACK_WINDOW = 40
+# The number of future data points required to determine trade outcome.
+FORWARD_WINDOW = 20
+# Minimum number of rows required in the CSV to run the backtest.
+MIN_DF_LEN = LOOKBACK_WINDOW + FORWARD_WINDOW + 50  # Add buffer for SMA/ATR calc
+# The score threshold to trigger a "BUY" signal.
+SCORE_THRESHOLD = 7.0
+# Parameters for indicators.
 SMA_PERIOD = 50
 ATR_PERIOD = 14
-HOLDING_PERIOD = 20
-SCORE_THRESHOLD = 7.0
 
 
-def _calculate_atr(data: pd.DataFrame, period: int) -> pd.Series:
-    """Helper to calculate Average True Range."""
-    high_low = data["High"] - data["Low"]
-    high_close = (data["High"] - data["Close"].shift()).abs()
-    low_close = (data["Low"] - data["Close"].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+def _calculate_atr(df: pd.DataFrame, period: int) -> pd.Series:
+    """Calculates the Average True Range (ATR)."""
+    high_low = df["High"] - df["Low"]
+    high_close = (df["High"] - df["Close"].shift()).abs()
+    low_close = (df["Low"] - df["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1, skipna=False)
     return tr.rolling(window=period).mean()
 
 
 # impure
-def run_backtest(ticker: str, data_path: Path, results_path: Path):
+def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
     """
-    Runs the deterministic backtest for a single ticker.
-    This function reads a data file and writes a results file.
+    Runs the backtest logic for a given ticker CSV.
+
+    This function is marked as impure because it interacts with the filesystem
+    (reading a file) and can exit the program.
     """
     try:
-        full_data = pd.read_csv(data_path, index_col="Date", parse_dates=True)
-    except FileNotFoundError as e:
-        # Per H-12, re-raise exceptions rather than failing silently.
-        # Per H-18, do not use print() in library code.
-        raise e
+        df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
+    except FileNotFoundError:
+        print(f"Error: File not found at {csv_path}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading or parsing CSV {csv_path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    # --- Pre-calculate all indicators once for efficiency ---
-    full_data["sma50"] = full_data["Close"].rolling(window=SMA_PERIOD).mean()
-    full_data["atr14"] = _calculate_atr(full_data, period=ATR_PERIOD)
+    if len(df) < MIN_DF_LEN:
+        # Not an error, just not enough data to process.
+        # Silently exit with no trades.
+        return []
 
-    # Drop rows with NaN indicators to ensure data integrity for backtest loop
-    full_data.dropna(inplace=True)
+    # --- Feature Engineering ---
+    df.sort_index(inplace=True)
+    df["sma50"] = df["Close"].rolling(window=SMA_PERIOD).mean()
+    df["atr14"] = _calculate_atr(df, ATR_PERIOD)
 
-    if len(full_data) < HOLDING_PERIOD:
-        # Not enough data to run a single backtest after accounting for indicators
-        return
+    # Drop rows with NaNs from indicator calculations at the beginning
+    df.dropna(inplace=True)
+
+    if len(df) < (LOOKBACK_WINDOW + FORWARD_WINDOW):
+        return []
 
     trades: List[Dict[str, Any]] = []
 
-    # Loop through each valid date in the pre-processed data
-    for i in range(len(full_data) - HOLDING_PERIOD):
-        analysis_date = full_data.index[i]
+    # Iterate from the first possible day to the last possible day.
+    for i in range(len(df) - FORWARD_WINDOW):
+        # Ensure we have enough lookback data.
+        if i < LOOKBACK_WINDOW:
+            continue
 
-        # Define the window for analysis
-        start_loc = max(0, i - LOOKBACK_WINDOW + 1)
-        window_df_raw = full_data.iloc[start_loc : i + 1]
+        current_date = df.index[i]
+        window_df = df.iloc[i - LOOKBACK_WINDOW : i]
 
-        # Normalize the window for the scorer
-        window_df_normalized = normalize_window(window_df_raw)
+        current_price = df["Close"].iloc[i]
+        sma50 = df["sma50"].iloc[i]
+        atr14 = df["atr14"].iloc[i]
 
-        current_price = full_data.loc[analysis_date, "Close"]
-        current_sma50 = full_data.loc[analysis_date, "sma50"]
-        current_atr = full_data.loc[analysis_date, "atr14"]
+        score_result = score(window_df, current_price, sma50)
 
-        score_result = score(window_df_normalized, current_price, current_sma50)
-        pattern_score = score_result["pattern_strength_score"]
+        if score_result["pattern_strength_score"] >= SCORE_THRESHOLD:
+            risk_params = calculate_risk_parameters(current_price, atr14)
+            stop_loss = risk_params["stop_loss"]
+            take_profit = risk_params["take_profit"]
 
-        if pattern_score >= SCORE_THRESHOLD:
-            risk_params = calculate_risk_parameters(current_price, current_atr)
+            forward_window_df = df.iloc[i + 1 : i + 1 + FORWARD_WINDOW]
+            min_price_forward = forward_window_df["Low"].min()
+            max_price_forward = forward_window_df["High"].max()
 
-            # Calculate trade outcome over the holding period
-            exit_date = full_data.index[i + HOLDING_PERIOD]
-            exit_price = full_data.loc[exit_date, "Close"]
-            return_pct = ((exit_price - current_price) / current_price) * 100
+            outcome = "HOLD_20_DAYS"
+            if min_price_forward <= stop_loss:
+                outcome = "STOP_LOSS_HIT"
+            elif max_price_forward >= take_profit:
+                outcome = "TAKE_PROFIT_HIT"
 
-            trades.append({
-                "entry_date": analysis_date.strftime("%Y-%m-%d"),
-                "ticker": ticker,
-                "entry_price": round(current_price, 2),
-                "pattern_score": pattern_score,
-                "pattern_description": score_result["pattern_description"],
-                "stop_loss": risk_params["stop_loss"],
-                "take_profit": risk_params["take_profit"],
-                "exit_date": exit_date.strftime("%Y-%m-%d"),
-                "exit_price": round(exit_price, 2),
-                "return_pct": round(return_pct, 2),
-            })
+            final_price = df["Close"].iloc[i + FORWARD_WINDOW]
+            forward_return_pct = ((final_price - current_price) / current_price) * 100
 
-    if not trades:
-        return
+            trades.append(
+                {
+                    "entry_date": current_date.strftime("%Y-%m-%d"),
+                    "entry_price": round(current_price, 2),
+                    "pattern_score": score_result["pattern_strength_score"],
+                    "pattern_desc": score_result["pattern_description"],
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "outcome": outcome,
+                    "forward_return_pct": round(forward_return_pct, 2),
+                }
+            )
 
-    results_df = pd.DataFrame(trades)
-    results_path.parent.mkdir(parents=True, exist_ok=True)
-    results_df.to_csv(results_path, index=False)
+    return trades
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run a deterministic backtest for a stock."
-    )
+# impure
+def main() -> None:
+    """
+    Main function to parse arguments and run the backtester.
+    Impure due to filesystem I/O and printing.
+    """
+    parser = argparse.ArgumentParser(description="Emergent Alpha Backtester")
     parser.add_argument(
         "--ticker",
         type=str,
-        default="RELIANCE.NS.sample",
-        help="The ticker symbol to backtest (without .csv extension).",
+        required=True,
+        help="Path to the ticker CSV file (e.g., data/ohlcv/RELIANCE.NS.sample.csv).",
     )
     args = parser.parse_args()
 
-    DATA_DIR = Path("data/ohlcv")
-    RESULTS_DIR = Path("results/runs")
+    trades = run_backtest(args.ticker)
 
-    input_path = DATA_DIR / f"{args.ticker}.csv"
-    output_path = RESULTS_DIR / f"{args.ticker}.results.csv"
+    output_path = "results/results.csv"
+    if trades:
+        results_df = pd.DataFrame(trades)
+        results_df.to_csv(output_path, index=False)
+        print(f"Backtest complete. Found {len(trades)} trades. Results saved to {output_path}")
+    else:
+        print("Backtest complete. No trades were triggered.")
+        # Create empty file with headers if no trades found.
+        pd.DataFrame(columns=[
+            "entry_date", "entry_price", "pattern_score", "pattern_desc",
+            "stop_loss", "take_profit", "outcome", "forward_return_pct"
+        ]).to_csv(output_path, index=False)
 
-    run_backtest(args.ticker, input_path, output_path)
+
+if __name__ == "__main__":
+    main()
