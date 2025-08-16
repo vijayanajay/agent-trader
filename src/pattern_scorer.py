@@ -1,50 +1,65 @@
+# -*- coding: utf-8 -*-
+from typing import Any, Dict
+
 import pandas as pd
-from typing import Dict
 
-__all__ = ["score_pattern_deterministically"]
+__all__ = ["score"]
 
 
-def score_pattern_deterministically(window_data: pd.DataFrame) -> Dict[str, float]:
+def score(
+    window_df: pd.DataFrame, current_price: float, sma50: float
+) -> Dict[str, Any]:
     """
-    Scores a 40-day data window based on deterministic rules.
+    Scores a 40-day data window based on deterministic rules from Task 4.
 
-    The score is based on two factors:
-    1.  Momentum Score (0-5): Based on the 20-day price change.
-    2.  Volume Surge Score (0-5): Based on recent volume compared to average.
+    Components:
+    1.  Recent 10-day return (scaled, 0-4 points).
+    2.  Volume surge (current vs median, 0-3 points).
+    3.  Position vs sma50 (above => bonus, 3 points).
 
     Args:
-        window_data: A 40-day DataFrame of OHLCV data.
+        window_df: A 40-day DataFrame of OHLCV data.
+        current_price: The current closing price.
+        sma50: The 50-day simple moving average for the current day.
 
     Returns:
-        A dictionary containing the total score and sub-scores.
+        A dictionary containing the score and a description.
     """
-    # --- 1. Momentum Score (0-5 points) ---
-    # Compare the most recent price to the price 20 days ago
-    price_now = window_data["Close"].iloc[-1]
-    price_20d_ago = window_data["Close"].iloc[-21]
+    # 1. Return Score (0-4 points)
+    # Ensure there are at least 11 days for a 10-day lookback.
+    if len(window_df) < 11:
+        return {
+            "pattern_strength_score": 0.0,
+            "pattern_description": "Not enough data for 10-day return.",
+        }
+    price_10d_ago = window_df["Close"].iloc[-11]
+    return_pct = (
+        (current_price - price_10d_ago) / price_10d_ago if price_10d_ago else 0
+    )
+    # A 10% gain maps to 4 points. Clamp between 0 and 4.
+    return_score = min(max(0, return_pct * 40), 4)
 
-    momentum_pct = (price_now - price_20d_ago) / price_20d_ago if price_20d_ago != 0 else 0
+    # 2. Volume Surge Score (0-3 points)
+    median_volume = window_df["Volume"].median()
+    current_volume = window_df["Volume"].iloc[-1]
+    volume_score = 0.0
+    if median_volume > 0:
+        volume_ratio = current_volume / median_volume
+        # A 100% surge (ratio of 2.0) maps to 3 points. Clamp between 0 and 3.
+        volume_score = min(max(0, (volume_ratio - 1) * 3), 3)
 
-    # Scale the momentum percentage to a score of 0-5.
-    # A 10% increase over 20 days maps to a score of 5.
-    momentum_score = min(max(0, momentum_pct * 50), 5)
+    # 3. SMA Bonus (3 points)
+    sma_score = 3.0 if not pd.isna(sma50) and current_price > sma50 else 0.0
 
-    # --- 2. Volume Surge Score (0-5 points) ---
-    # Compare the average volume of the last 5 days to the average of the whole window
-    avg_volume_total = window_data["Volume"].mean()
-    avg_volume_last_5d = window_data["Volume"].tail(5).mean()
+    total_score = round(return_score + volume_score + sma_score, 2)
 
-    volume_ratio = avg_volume_last_5d / avg_volume_total if avg_volume_total > 0 else 1
-
-    # Scale the volume ratio to a score of 0-5.
-    # A ratio of 2.0 (i.e., 100% increase) maps to a score of 5.
-    volume_score = min(max(0, (volume_ratio - 1) * 5), 5)
-
-    # --- 3. Final Score ---
-    total_score = round(momentum_score + volume_score, 2)
+    desc = (
+        f"Return({return_score:.1f}/4), "
+        f"Volume({volume_score:.1f}/3), "
+        f"SMA({sma_score:.1f}/3)"
+    )
 
     return {
-        "pattern_score": total_score,
-        "momentum_score": round(momentum_score, 2),
-        "volume_score": round(volume_score, 2),
+        "pattern_strength_score": total_score,
+        "pattern_description": desc,
     }

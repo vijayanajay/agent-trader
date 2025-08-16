@@ -19,3 +19,9 @@ This document records issues, resolutions, and insights gained during the develo
 - **Issue:** `docs/tasks.md` specified that new modules like `data_preprocessor` and `risk_manager` should be placed in a `src/utils/` directory. However, `docs/architecture.md` (in the MVP section) and the existing project structure place these modules directly in `src/`.
 - **Resolution:** Followed the existing project structure and the `architecture.md` specification, as they represent the implemented reality. The code was kept in `src/` without the `utils/` subdirectory.
 - **Insight:** When documentation conflicts, the architecture document and the existing, working code should take precedence over a task list, which may contain outdated plans. The inconsistency should be noted and resolved in the documentation later.
+
+## 2025-08-16: Refactoring `pattern_scorer` for Task 4 Alignment
+
+- **Issue:** The existing implementation in `src/pattern_scorer.py` did not match the requirements specified in `docs/tasks.md` for Task 4. The function signature, logic (momentum calculation vs. 10-day return, etc.), and return dictionary were different.
+- **Resolution:** Replaced the entire contents of `src/pattern_scorer.py` with a new implementation that strictly follows the Task 4 specification. This was done in accordance with rule [H-3] ("Prefer deletion over clever rewrites"). The `backtester.py` was also updated to provide the necessary `sma50` input and handle the new output format.
+- **Insight:** Sticking to the documented tasks, especially in an MVP, is crucial. When a component diverges from the plan, it's better to replace it wholesale to align with the specification rather than trying to adapt the incorrect implementation. This keeps the system's state consistent with its documentation.

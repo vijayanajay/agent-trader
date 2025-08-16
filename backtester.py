@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from src.data_preprocessor import preprocess_data
-from src.pattern_scorer import score_pattern_deterministically
+from src.pattern_scorer import score
 from src.risk_manager import calculate_risk_parameters
 
 
@@ -22,10 +22,13 @@ def run_backtest(ticker: str, data_path: Path, results_path: Path):
         # For this MVP, we will exit silently on file-not-found.
         return
 
+    # --- Pre-calculate indicators for the whole series ---
+    full_data["sma50"] = full_data["Close"].rolling(window=50).mean()
+
     trades: List[Dict[str, Any]] = []
 
-    # Loop through each date, starting after the initial window period
-    for analysis_date in full_data.index[40:]:
+    # Loop through each date, starting after a safe buffer (e.g., 50 for SMA)
+    for analysis_date in full_data.index[50:]:
         analysis_date_str = analysis_date.strftime("%Y-%m-%d")
         processed = preprocess_data(full_data, analysis_date_str)
 
@@ -33,8 +36,10 @@ def run_backtest(ticker: str, data_path: Path, results_path: Path):
             continue
 
         window_data, current_price, current_atr = processed
-        score_result = score_pattern_deterministically(window_data)
-        pattern_score = score_result["pattern_score"]
+        current_sma50 = full_data.loc[analysis_date, "sma50"]
+
+        score_result = score(window_data, current_price, current_sma50)
+        pattern_score = score_result["pattern_strength_score"]
 
         # Decision rule: BUY if score is 7.0 or higher
         if pattern_score >= 7.0:
@@ -57,6 +62,7 @@ def run_backtest(ticker: str, data_path: Path, results_path: Path):
                 "ticker": ticker,
                 "entry_price": round(current_price, 2),
                 "pattern_score": pattern_score,
+                "pattern_description": score_result["pattern_description"],
                 "stop_loss": risk_params["stop_loss"],
                 "take_profit": risk_params["take_profit"],
                 "exit_date": exit_date.strftime("%Y-%m-%d"),
