@@ -14,6 +14,7 @@ from typing import Dict, List, Any
 
 import pandas as pd
 
+from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score
 from src.risk_manager import calculate_risk_parameters
 
@@ -22,22 +23,13 @@ from src.risk_manager import calculate_risk_parameters
 LOOKBACK_WINDOW = 40
 # The number of future data points required to determine trade outcome.
 FORWARD_WINDOW = 20
-# Minimum number of rows required in the CSV to run the backtest.
+# Minimum number of rows required in the raw CSV to run the backtest.
 MIN_DF_LEN = LOOKBACK_WINDOW + FORWARD_WINDOW + 50  # Add buffer for SMA/ATR calc
 # The score threshold to trigger a "BUY" signal.
 SCORE_THRESHOLD = 7.0
 # Parameters for indicators.
 SMA_PERIOD = 50
 ATR_PERIOD = 14
-
-
-def _calculate_atr(df: pd.DataFrame, period: int) -> pd.Series:
-    """Calculates the Average True Range (ATR)."""
-    high_low = df["High"] - df["Low"]
-    high_close = (df["High"] - df["Close"].shift()).abs()
-    low_close = (df["Low"] - df["Close"].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1, skipna=False)
-    return tr.rolling(window=period).mean()
 
 
 # impure
@@ -49,7 +41,7 @@ def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
     (reading a file) and can exit the program.
     """
     try:
-        df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
+        raw_df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
     except FileNotFoundError:
         print(f"Error: File not found at {csv_path}", file=sys.stderr)
         sys.exit(1)
@@ -57,18 +49,12 @@ def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
         print(f"Error reading or parsing CSV {csv_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    if len(df) < MIN_DF_LEN:
+    if len(raw_df) < MIN_DF_LEN:
         # Not an error, just not enough data to process.
-        # Silently exit with no trades.
         return []
 
     # --- Feature Engineering ---
-    df.sort_index(inplace=True)
-    df["sma50"] = df["Close"].rolling(window=SMA_PERIOD).mean()
-    df["atr14"] = _calculate_atr(df, ATR_PERIOD)
-
-    # Drop rows with NaNs from indicator calculations at the beginning
-    df.dropna(inplace=True)
+    df = preprocess_data(raw_df, sma_period=SMA_PERIOD, atr_period=ATR_PERIOD)
 
     if len(df) < (LOOKBACK_WINDOW + FORWARD_WINDOW):
         return []
