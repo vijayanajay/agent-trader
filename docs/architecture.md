@@ -211,3 +211,23 @@ The 2-day sprint plan from the PRD is aggressive but achievable with this archit
 *   **Day 2:** The primary task is assembling the crew in `crew.py`, defining tasks and their dependencies, and ensuring proper data flow between agents. The `backtester.py` script is the final piece, tying everything together by calling the crew execution method.
 
 This plan minimizes dependencies and allows for parallel work. The individual agents are developed independently of the final orchestration, which is a simple assembly task on Day 2.
+
+### 8. MVP: exact deliverables (minimal, actionable)
+
+Keep this extremely short — what must exist to call the project an MVP:
+
+- Files:
+    - `data/ohlcv/{TICKER}.csv` (one sample: `RELIANCE.NS.sample.csv`).
+    - `src/data_preprocessor.py` — reads CSV / yfinance, returns normalized 40-day window + price + ATR.
+    - `src/risk_manager.py` — function: stop_loss = price - 2*ATR, take_profit = price + 4*ATR.
+    - `src/pattern_scorer.py` — deterministic scorer (no-LLM) that returns score 0–10.
+    - `backtester.py` — single-ticker runner that writes `results.csv` with trades and 20d outcomes.
+    - `analysis/analyze_results.py` — prints win rate and profit factor.
+
+- Minimal tests: unit tests for `data_preprocessor` and `risk_manager` (happy path + ATR=0).
+
+- Acceptance criteria:
+    - `python backtester.py --ticker RELIANCE.NS.sample` completes and produces `results.csv`.
+    - `analyze_results.py results.csv` prints Win Rate and Profit Factor.
+
+If these exist and run locally without CrewAI or LLM credentials, we have an MVP. Anything else is optional for v1.0.

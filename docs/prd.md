@@ -233,3 +233,67 @@ The success of the v1.0 prototype will be measured by:
 *   **Backtest Win Rate:** > 55% on the historical dataset.
 *   **Profit Factor:** (Gross Profit / Gross Loss) > 1.5.
 *   **Qualitative Feedback:** The rationales provided by the system are logical and insightful.
+
+### 8. MVP Plan (Kailash Nadh pragmatism)
+
+This MVP plan focuses on delivering a minimal, verifiable prototype in the shortest time with the least friction. It trades fancy orchestration for repeatability and fast learning.
+
+Goals:
+- Deliver an end-to-end pipeline for a single ticker that produces reproducible `results.csv` containing trades and 20-day outcomes.
+- Prefer deterministic, testable components first; add LLM capability as an optional, instrumented enhancement.
+
+Concrete steps (ordered, 48-hour friendly):
+1. Create a minimal code layout:
+    - `data/preprocessor.py` — read CSV or `yfinance`, compute 50/200 SMA, 14-day ATR, daily pct change, and return a normalized window (N=40 by default).
+    - `strategy/pattern_scorer.py` — two modes: `deterministic` (fast, used for backtests) and `llm` (optional). Deterministic scorer = normalized recent return + volume surge + MA position, scaled to 0–10.
+    - `risk/risk_manager.py` — stop_loss = price - 2*ATR, take_profit = price + 4*ATR.
+    - `backtester.py` — iterate dates for one ticker, call preprocessor → scorer → risk → decision, log trades to `results.csv`.
+    - `analysis/analyze_results.py` — compute win rate, profit factor, trade count.
+2. Add a single, small sample CSV for one representative ticker (e.g., `data/RELIANCE.NS.sample.csv`) so runs are instant.
+3. Add unit tests for `preprocessor` and `risk_manager` (happy path + ATR=0 edge case).
+4. Run a single-ticker backtest and capture `results.csv`. Confirm the pipeline runs without LLM keys or CrewAI.
+5. If the deterministic baseline is noisy or promising, enable `llm` mode on a small subset and compare outputs.
+
+Acceptance criteria:
+- `backtester.py` completes for one ticker and writes `results.csv`.
+- `analyze_results.py` prints win rate and profit factor.
+- Minimal tests pass locally.
+
+Trade-offs and rationale (Kailash mindset):
+- Keep orchestration minimal: CrewAI and multi-agent choreography are high-value later; validate signal first.
+- Use deterministic scoring to create a stable baseline for comparison; LLM should improve interpretation, not be the entire pipeline.
+
+### 9. Next phase (Kailash pragmatism + Hinton experimentation)
+
+After the MVP confirms the pipeline and provides reproducible metrics, the next phase balances pragmatic product work (Kailash) with experimental discovery (Hinton). Focus areas and prioritized experiments:
+
+1. Stabilize & scale (practical / product):
+    - Expand backtesting to a curated set of 50 tickers (diverse sectors) and run batched jobs.
+    - Add robust data plumbing: ticker list, download scripts, CSV canonicalization, daily cron-friendly runner.
+    - Add reproducible experiment tracking: store run config, scorer mode, LLM prompt version, and results (simple JSON per run).
+    - Add basic visualization for results (PNL curve, trade distribution) to speed decision making.
+
+2. Integrate LLMs carefully (experimental / Hinton-style):
+    - Treat the LLM as an experimental oracle: run it on a held-out subset and measure marginal benefit vs deterministic scorer.
+    - Use controlled A/B tests: for the same date/ticker, compare decisions using `deterministic` vs `llm` modes and log discrepancies.
+    - Iterate prompts and temperature: keep prompt versions pinned and add a tiny utilities folder to version prompts and parse outputs.
+
+3. Modular agent rollout (orchestration):
+    - Once the LLM shows marginal value, implement the CrewAI crew with 3 core agents: `Data_Preprocessor`, `Pattern_Analyser` (LLM-enabled), and `Decision_Synthesizer`.
+    - Keep Market_Context and Risk_Manager as lightweight local functions for now; promote to agents if orchestration helps experiments.
+
+4. Research experiments (Hinton-style exploratory work):
+    - Probe emergent representations: feed raw normalized windows to LLMs and ask for compressed pattern tokens; track if these tokens correlate with returns.
+    - Use ensembling of small deterministic indicators with LLM-derived features and measure combined performance.
+    - Explore contrastive prompts: ask the LLM to compare two nearby windows and explain which is more likely to lead to a 20-day rise — capture explanations as features.
+
+5. Safety & sanity checks:
+    - Add checks for corporate actions and large gaps; flag or skip dates with extreme adjustments.
+    - Add audit logs for LLM calls (prompt version, seed, response) to allow reproducible analysis.
+
+Deliverables for next phase:
+ - Batched backtester for 50 tickers with run metadata saved per run.
+ - Visualization dashboard (static HTML + plots) for P&L, trade coverage, and signal distribution.
+ - A small experimental report comparing deterministic baseline vs LLM-augmented results.
+
+Closing note (Kailash + Hinton): iterate fast, measure carefully. Build the simplest reliable baseline first, then use carefully instrumented LLM experiments to chase marginal wins. Focus on short feedback loops and reproducible comparisons.
