@@ -1,9 +1,9 @@
 from typing import Dict
 
-__all__ = ["compute_risk"]
+__all__ = ["calculate_risk_parameters"]
 
 
-def compute_risk(current_price: float, current_atr: float) -> Dict[str, float]:
+def calculate_risk_parameters(current_price: float, current_atr: float) -> Dict[str, float]:
     """
     Calculates stop-loss and take-profit levels based on ATR.
 
