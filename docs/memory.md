@@ -41,3 +41,13 @@ This document records issues, resolutions, and insights gained during the develo
 - **Issue:** The newly created `src/analysis/results.py` script used the `rich` library for formatted console output, following the project's convention for CLI tools. However, `rich` was not listed in `requirements.txt`, causing `pytest` to fail with a `ModuleNotFoundError`.
 - **Resolution:** Added `rich` to `requirements.txt` and re-installed dependencies using `pip install -r requirements.txt`. This resolved the import error and allowed all tests to pass.
 - **Insight:** When adding a new script that has dependencies, even for non-core logic like CLI output, ensure those dependencies are added to `requirements.txt` to maintain a reproducible environment. Rule [H-10] is strict, but a library for rich CLI output is a reasonable addition for a dedicated CLI script.
+
+## 2025-08-16: README Creation and Verification
+
+- **Observation:** Created `README.md` for project setup and usage as per `tasks.md`.
+- **Action:** Manually verified all steps in the `README.md`:
+  - `pip install -r requirements.txt` completed successfully.
+  - `python backtester.py --ticker ...` ran without errors.
+  - `python -m src.analysis.results ...` ran without errors.
+- **Fix:** No fix was required. The instructions were correct.
+- **Learning:** The command `python -m src.analysis.results results/results.csv` is the correct way to invoke the analysis script, which is a good pattern to maintain. The initial project setup and scripts are robust.
