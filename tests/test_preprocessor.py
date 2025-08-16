@@ -60,7 +60,7 @@ def test_preprocess_current_date_has_nan(sample_df: pd.DataFrame) -> None:
     result = preprocess_data(sample_df, "2023-08-18")
     assert result is None
 
-def test_calculate_atr_helper():
+def test_calculate_atr_helper() -> None:
     """Tests the _calculate_atr helper function directly for correctness."""
     data = {
         "High": [10, 12, 11],

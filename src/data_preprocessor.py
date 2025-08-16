@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from typing import Optional, Tuple
+import numpy as np
 import pandas as pd
 
 __all__ = ["preprocess_data"]
@@ -68,6 +69,12 @@ def preprocess_data(
     except KeyError:
         return None  # Date not found, likely a holiday. Skip.
 
+    # Per memory.md, mypy --strict requires asserting the type of get_loc()
+    if not isinstance(date_loc, int):
+        # This occurs if the index has duplicates and get_loc() returns a slice.
+        # For this system, we treat that as an unrecoverable data error.
+        return None
+
     # Ensure there is enough data for a full window AND for ATR calculation lookback
     if date_loc < window:
         return None
@@ -82,11 +89,17 @@ def preprocess_data(
     # --- Normalization ---
     window_df = _normalize_window(window_df)
 
-    current_price = full_df.loc[target_date, "Close"]
-    current_atr = atr14.loc[target_date]
+    current_price_val = full_df.loc[target_date, "Close"]
+    current_atr_val = atr14.loc[target_date]
 
     # Do not proceed if key indicators are not available
-    if pd.isna(current_price) or pd.isna(current_atr):
+    if pd.isna(current_price_val) or pd.isna(current_atr_val):
         return None
 
-    return window_df, current_price, current_atr
+    # Explicitly check for numeric types to satisfy mypy --strict
+    if not isinstance(current_price_val, (int, float, np.number)) or not isinstance(
+        current_atr_val, (int, float, np.number)
+    ):
+        return None  # Data is not numeric, cannot proceed
+
+    return window_df, float(current_price_val), float(current_atr_val)
