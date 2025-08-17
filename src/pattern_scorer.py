@@ -44,8 +44,11 @@ def score(
     lookback_period = RETURN_LOOKBACK_DAYS + 1  # Need N+1 days for N-day return
     if len(window_df) < lookback_period:
         return {
-            "pattern_strength_score": 0.0,
-            "pattern_description": f"Not enough data for {RETURN_LOOKBACK_DAYS}-day return.",
+            "final_score": 0.0,
+            "return_score": 0.0,
+            "volume_score": 0.0,
+            "sma_score": 0.0,
+            "description": f"Not enough data for {RETURN_LOOKBACK_DAYS}-day return.",
         }
     price_n_days_ago = window_df["Close"].iloc[-lookback_period]
     return_pct = (
@@ -81,6 +84,9 @@ def score(
     )
 
     return {
-        "pattern_strength_score": total_score,
-        "pattern_description": desc,
+        "final_score": total_score,
+        "return_score": return_score,
+        "volume_score": volume_score,
+        "sma_score": sma_score,
+        "description": desc,
     }
