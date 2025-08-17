@@ -231,4 +231,33 @@ Definition of Done (DoD):
 
 Time estimate: 1.5 hours
 
-Status: Not Started
+Status: Completed
+
+## Task 10 — Post-Mortem Analysis of Trade Signals (1.5h)
+
+Items to implement:
+- Create a new script `src/analysis/signal_quality.py` that accepts two CLI arguments: `--results <path_to_results.csv>` and `--log <path_to_run_log.csv>`.
+- In the script:
+    - Load both CSV files into pandas DataFrames.
+    - Merge the trade results with the daily run log on the date (`entry_date` and `date`).
+    - Calculate a normalized volatility column: `atr_pct = (atr14 / price) * 100`.
+    - Group the resulting DataFrame by the `outcome` column (e.g., `TAKE_PROFIT_HIT`, `STOP_LOSS_HIT`).
+    - For each outcome group, print a statistical summary (using `.describe()`) for the key columns: `return_score`, `volume_score`, `sma_score`, and `atr_pct`.
+    - Use the `rich` library to format the output into clear, readable tables for each group.
+- Update `README.md` with instructions on how to run this new analysis script.
+
+Tests to cover:
+- `tests/test_analysis.py`: Add a simple test that runs `signal_quality.py` on the sample results and log files, asserting that it completes with a zero exit code and the output contains expected headers (e.g., "TAKE_PROFIT_HIT Analysis").
+
+Acceptance Criteria (AC):
+- The script `src/analysis/signal_quality.py` is created and executable.
+- Running the script with the sample data produces a console output with distinct statistical tables for each trade outcome.
+- The analysis includes the new `atr_pct` metric.
+- The `README.md` is updated with a new usage example for this script.
+
+Definition of Done (DoD):
+- `src/analysis/signal_quality.py` and its corresponding test are implemented and committed.
+- `README.md` is updated.
+- The script has been run locally against the existing `results.csv` and `RELIANCE.NS.run_log.csv` to generate initial insights.
+
+Time estimate: 1.5 hours
