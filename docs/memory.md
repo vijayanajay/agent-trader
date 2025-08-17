@@ -57,3 +57,9 @@ This document records issues, resolutions, and insights gained during the develo
 *   **Issue:** After installing dependencies from `requirements.txt`, running `pytest` resulted in `ModuleNotFoundError: No module named 'pandas'`. However, `python -c "import pandas"` worked correctly.
 *   **Root Cause:** The `pytest` executable on the system's PATH was likely not associated with the active Python virtual environment where the dependencies were installed. This can happen due to misconfigured paths or multiple Python installations.
 *   **Solution:** Invoke pytest as a module of the correct Python interpreter to ensure it uses the correct environment: `python -m pytest`. This is a more robust way to run tests, especially in environments with multiple Python versions.
+
+## 2025-08-17: `dropna()` in preprocessor can delete all data
+
+- **Issue**: The `backtester` was failing silently, producing no daily logs. The root cause was that `src/data_preprocessor.py` was calculating a 200-day SMA on a 120-day sample dataset. This resulted in the `sma200` column being entirely `NaN`. A subsequent `dropna(inplace=True)` call then wiped out all rows in the DataFrame.
+- **Learning**: When using `dropna()`, be aware of how preceding indicator calculations with large lookback windows can affect smaller datasets. An indicator that is `NaN` for all rows will cause `dropna()` to return an empty DataFrame.
+- **Resolution**: The `sma200` indicator was not used anywhere downstream. The fix was to remove the calculation entirely from `preprocess_data`, which is consistent with the "Prefer deletion over clever rewrites" principle. This also required updating the preprocessor's tests.

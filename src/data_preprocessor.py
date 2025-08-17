@@ -22,7 +22,6 @@ def _calculate_atr(df: pd.DataFrame, period: int) -> pd.Series:
 def preprocess_data(
     df: pd.DataFrame,
     sma50_period: int,
-    sma200_period: int,
     atr_period: int,
     normalize_window: bool = False,
 ) -> pd.DataFrame:
@@ -32,7 +31,6 @@ def preprocess_data(
     Args:
         df: The raw OHLCV DataFrame, indexed by Date.
         sma50_period: The period for the 50-day simple moving average.
-        sma200_period: The period for the 200-day simple moving average.
         atr_period: The period for the Average True Range.
         normalize_window: If True, normalizes Close and Volume to a 0-1 scale.
 
@@ -43,9 +41,6 @@ def preprocess_data(
     processed_df.sort_index(inplace=True)
     processed_df["sma50"] = (
         processed_df["Close"].rolling(window=sma50_period).mean()
-    )
-    processed_df["sma200"] = (
-        processed_df["Close"].rolling(window=sma200_period).mean()
     )
     processed_df["atr14"] = _calculate_atr(processed_df, atr_period)
     processed_df["pct_change"] = processed_df["Close"].pct_change()

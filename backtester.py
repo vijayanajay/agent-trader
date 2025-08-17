@@ -9,8 +9,10 @@ Usage:
     python backtester.py --ticker data/ohlcv/RELIANCE.NS.sample.csv
 """
 import argparse
+import os
 import sys
-from typing import Dict, List, Any
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
@@ -25,12 +27,13 @@ FORWARD_WINDOW = 20
 SCORE_THRESHOLD = 7.0
 # Parameters for indicators.
 SMA50_PERIOD = 50
-SMA200_PERIOD = 200
 ATR_PERIOD = 14
 
 
 # impure
-def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
+def run_backtest(
+    csv_path: str, lookback_window: int
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Runs the backtest logic for a given ticker CSV.
 
@@ -49,20 +52,20 @@ def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
     min_df_len = lookback_window + FORWARD_WINDOW + 50
     if len(raw_df) < min_df_len:
         # Not an error, just not enough data to process.
-        return []
+        return [], []
 
     # --- Feature Engineering ---
     df = preprocess_data(
         raw_df,
         sma50_period=SMA50_PERIOD,
-        sma200_period=SMA200_PERIOD,
         atr_period=ATR_PERIOD,
     )
 
     if len(df) < (lookback_window + FORWARD_WINDOW):
-        return []
+        return [], []
 
     trades: List[Dict[str, Any]] = []
+    daily_logs: List[Dict[str, Any]] = []
 
     # Iterate from the first possible day to the last possible day.
     for i in range(len(df) - FORWARD_WINDOW):
@@ -79,7 +82,17 @@ def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
 
         score_result = score(window_df, current_price, sma50)
 
-        if score_result["pattern_strength_score"] >= SCORE_THRESHOLD:
+        # Log daily signals and indicators.
+        log_entry = {
+            "date": current_date.strftime("%Y-%m-%d"),
+            "price": current_price,
+            "atr14": atr14,
+            "sma50": sma50,
+            **score_result,
+        }
+        daily_logs.append(log_entry)
+
+        if score_result["final_score"] >= SCORE_THRESHOLD:
             risk_params = calculate_risk_parameters(current_price, atr14)
             stop_loss = risk_params["stop_loss"]
             take_profit = risk_params["take_profit"]
@@ -101,8 +114,8 @@ def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
                 {
                     "entry_date": current_date.strftime("%Y-%m-%d"),
                     "entry_price": round(current_price, 2),
-                    "pattern_score": score_result["pattern_strength_score"],
-                    "pattern_desc": score_result["pattern_description"],
+                    "pattern_score": score_result["final_score"],
+                    "pattern_desc": score_result["description"],
                     "stop_loss": stop_loss,
                     "take_profit": take_profit,
                     "outcome": outcome,
@@ -110,7 +123,7 @@ def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
                 }
             )
 
-    return trades
+    return trades, daily_logs
 
 # impure
 def main() -> None:
@@ -133,20 +146,37 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    trades = run_backtest(args.ticker, args.lookback)
+    trades, daily_logs = run_backtest(args.ticker, args.lookback)
 
-    output_path = "results/results.csv"
+    # --- Save Trades ---
+    trade_output_path = "results/results.csv"
     if trades:
         results_df = pd.DataFrame(trades)
-        results_df.to_csv(output_path, index=False)
-        print(f"Backtest complete. Found {len(trades)} trades. Results saved to {output_path}")
+        results_df.to_csv(trade_output_path, index=False)
+        print(
+            f"Backtest complete. Found {len(trades)} trades. "
+            f"Results saved to {trade_output_path}"
+        )
     else:
         print("Backtest complete. No trades were triggered.")
         # Create empty file with headers if no trades found.
-        pd.DataFrame(columns=[
-            "entry_date", "entry_price", "pattern_score", "pattern_desc",
-            "stop_loss", "take_profit", "outcome", "forward_return_pct"
-        ]).to_csv(output_path, index=False)
+        pd.DataFrame(
+            columns=[
+                "entry_date", "entry_price", "pattern_score", "pattern_desc",
+                "stop_loss", "take_profit", "outcome", "forward_return_pct",
+            ]
+        ).to_csv(trade_output_path, index=False)
+
+    # --- Save Daily Run Log ---
+    if daily_logs:
+        ticker_name = Path(args.ticker).stem
+        log_dir = Path("results/runs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_output_path = log_dir / f"{ticker_name}.run_log.csv"
+
+        log_df = pd.DataFrame(daily_logs)
+        log_df.to_csv(log_output_path, index=False, float_format="%.2f")
+        print(f"Daily run log saved to {log_output_path}")
 
 
 if __name__ == "__main__":
