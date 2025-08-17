@@ -45,7 +45,7 @@ The process involves running a backtest on sample data and then analyzing the re
 2.  **Analyze the Results:**
     This command reads the output from the backtester and prints a performance summary, including total trades, win rate, and profit factor.
     ```sh
-    python -m src.analysis.results results/runs/results_RELIANCE.NS.csv
+    python -m src.analysis.results results/results_RELIANCE.NS.csv
     ```
 
 3.  **Analyze Signal Quality:**

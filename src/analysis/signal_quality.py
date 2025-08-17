@@ -55,8 +55,9 @@ def analyze_signal_quality(
     analysis_cols = [
         "return_score",
         "volume_score",
-        "sma_score",
-        "atr_pct",
+    "sma_score",
+    "volatility_score",
+    "atr_pct",
     ]
     # Filter out columns that might not exist in the merged_df
     existing_analysis_cols = [col for col in analysis_cols if col in merged_df.columns]
