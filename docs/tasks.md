@@ -21,6 +21,8 @@ Definition of Done (DoD):
 - Files committed to git.
 
 Time estimate: 1.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -48,6 +50,8 @@ Definition of Done (DoD):
 - `src/utils/data_preprocessor.py` and tests are committed.
 
 Time estimate: 1.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -68,6 +72,8 @@ Definition of Done (DoD):
 - File and tests committed.
 
 Time estimate: 0.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -91,6 +97,8 @@ Definition of Done (DoD):
 - File and tests committed.
 
 Time estimate: 1.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -115,6 +123,8 @@ Definition of Done (DoD):
 - `backtester.py` and test committed; sample run produces results.
 
 Time estimate: 2.0 hours
+ 
+Status: Completed
 
 ---
 
@@ -133,6 +143,8 @@ Definition of Done (DoD):
 - Script committed.
 
 Time estimate: 0.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -154,6 +166,8 @@ Definition of Done (DoD):
 - README committed.
 
 Time estimate: 0.5 hours
+ 
+Status: Completed
 
 ---
 
@@ -169,9 +183,52 @@ Definition of Done (DoD):
 - Test results committed or issue created.
 
 Time estimate: 0.5 hours
+ 
+Status: Completed
 
----
+## Task 9 — Daily run log: Scorer analysis & tuning (1.5h)
 
-Completion note
+Items to implement:
+- Update scorer output (`src/pattern_scorer.py`):
+    - Make the `score(...)` function return intermediate component scores in addition to the final score and description.
+    - New return shape (example):
 
-This replaces the agent-heavy plan with a tight, verifiable MVP where each piece is small and testable. After these tasks, we'll have a runnable deterministic baseline that is easy to compare with LLM-augmented experiments in the next phase.
+```python
+return {
+        "final_score": total_score,
+        "return_score": return_score,
+        "volume_score": volume_score,
+        "sma_score": sma_score,
+        "description": desc,
+}
+```
+
+    - Rename `pattern_strength_score` → `final_score` and `pattern_description` → `description` (or keep description key consistent).
+
+- Collect per-day scorer data in the backtester (`backtester.py`):
+    - In `run_backtest(...)` create `daily_logs: List[Dict] = []` before the main loop.
+    - Inside the loop, after calling `score(...)`, build a `log_entry` with date, price, indicators (e.g., `atr14`, `sma50`), and the scorer component fields, then `daily_logs.append(log_entry)`.
+    - Use the new `final_score` key for decision logic (replace uses of `pattern_strength_score`).
+
+- Save the detailed run log separately:
+    - After `run_backtest` / in `main()`, if `daily_logs` is non-empty, convert to a pandas DataFrame and write to `results/runs/<ticker_name>.run_log.csv`.
+    - Ensure the directory exists (`os.makedirs(..., exist_ok=True)`).
+    - Add required imports: `import os` and `from pathlib import Path`.
+
+Tests to cover:
+- Add/extend a unit/integration test that runs the backtester on the sample CSV and verifies that `results/runs/<ticker>.run_log.csv` is created and contains expected columns: `date, price, atr14, sma50, final_score, return_score, volume_score, sma_score`.
+- Optional: assert that existing `results/results.csv` is still produced with the original trade columns and content shape.
+
+Acceptance Criteria (AC):
+- `src/pattern_scorer.py` returns intermediate component scores and `final_score` key.
+- `backtester.py` collects a per-day `daily_logs` list and writes `results/runs/<ticker>.run_log.csv` containing the required columns.
+- Existing trade result output (`results/results.csv`) remains unchanged in format and content (aside from using `final_score` for logging `pattern_score`).
+
+Definition of Done (DoD):
+- Changes to `src/pattern_scorer.py` and `backtester.py` implemented and committed.
+- One test added/updated verifying the run log file and its columns.
+- Example run (using sample CSV) produces `results/runs/RELIANCE.NS.sample.run_log.csv`.
+
+Time estimate: 1.5 hours
+
+Status: Not Started

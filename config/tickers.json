@@ -1,0 +1,14 @@
+{
+  "defaults": {
+    "interval": "1d",
+    "period": "5y",
+    "output_dir": "data/ohlcv"
+  },
+  "tickers": [
+    "RELIANCE.NS",
+    "TCS.NS",
+    "INFY.NS",
+    "HDFCBANK.NS",
+    "ICICIBANK.NS"
+  ]
+}
