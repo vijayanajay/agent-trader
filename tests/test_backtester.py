@@ -9,7 +9,8 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
 
-from backtester import run_backtest
+from backtester import BacktestConfig, run_backtest
+from src.pattern_scorer import ScorerConfig
 
 # --- Test Configuration ---
 SAMPLE_CSV_PATH = "data/ohlcv/RELIANCE.NS.sample.csv"
@@ -169,7 +170,11 @@ def test_backtester_market_regime_filter(
     mock_read_csv.side_effect = read_csv_side_effect
 
     # Act
-    trades, daily_logs = run_backtest(csv_path=SAMPLE_CSV_PATH, lookback_window=40)
+    bt_config = BacktestConfig(lookback_window=40)
+    scorer_config = ScorerConfig()
+    trades, daily_logs = run_backtest(
+        csv_path=SAMPLE_CSV_PATH, cfg=bt_config, scorer_cfg=scorer_config
+    )
 
     # Assert
     if expect_trades:
