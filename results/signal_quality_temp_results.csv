@@ -1,0 +1,9 @@
+outcome,feature,25%,50%,75%,count,max,mean,min,std
+STOP_LOSS_HIT,atr_pct,2.63,2.63,2.63,1.0,2.63,2.63,2.63,
+STOP_LOSS_HIT,return_score,5.0,5.0,5.0,1.0,5.0,5.0,5.0,
+STOP_LOSS_HIT,sma_score,6.0,6.0,6.0,1.0,6.0,6.0,6.0,
+STOP_LOSS_HIT,volume_score,8.0,8.0,8.0,1.0,8.0,8.0,8.0,
+TAKE_PROFIT_HIT,atr_pct,2.18,2.36,2.55,2.0,2.73,2.36,2.0,0.51
+TAKE_PROFIT_HIT,return_score,8.25,8.5,8.75,2.0,9.0,8.5,8.0,0.71
+TAKE_PROFIT_HIT,sma_score,9.0,9.0,9.0,2.0,9.0,9.0,9.0,0.0
+TAKE_PROFIT_HIT,volume_score,7.25,7.5,7.75,2.0,8.0,7.5,7.0,0.71
