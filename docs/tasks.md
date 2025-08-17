@@ -261,3 +261,53 @@ Definition of Done (DoD):
 - The script has been run locally against the existing `results.csv` and `RELIANCE.NS.run_log.csv` to generate initial insights.
 
 Time estimate: 1.5 hours
+
+## Task 11 — Implement Market Regime Filter (Deterministic)
+
+**Rationale:** The current signal generation is context-blind, leading to many failed trades in hostile market conditions. This task implements the simplest, most effective filter: only trade when the broader market is in an uptrend. This is a pragmatic MVP of the `Market_Context_Analyser` agent.
+**Items to implement:**
+    - In `backtester.py`, at the start of the `run_backtest` function, use `yfinance` to download the historical data for the NIFTY 50 index (`^NSEI`).
+    - Calculate a 200-day Simple Moving Average (SMA) on the index's closing prices.
+    - Inside the main date loop, before the scoring logic is called, add a market regime check:
+        - Get the index's closing price and its 200-day SMA for the `current_date`.
+        - If the index close is below its 200-day SMA, `continue` to the next day, skipping all scoring and trade logic.
+    - Add `yfinance` to the main `requirements.txt` if it's not already there for the backtester's environment.
+**Tests to cover:**
+    - Update `tests/test_backtester.py` to ensure the script still runs to completion without errors after adding the market filter logic. The test does not need to assert the correctness of the filter itself, only the integrity of the script's execution.
+**Acceptance Criteria (AC):**
+    - `backtester.py` now includes logic to filter trades based on the NIFTY 50's 200-day SMA.
+    - The script runs without error on the `RELIANCE.NS` data.
+    - The new `results_RELIANCE.NS.csv` file shows a different (likely smaller) number of trades than the previous run.
+**Definition of Done (DoD):**
+    - Changes to `backtester.py` are implemented and committed.
+    - `pytest` passes.
+    - A new backtest has been run on `RELIANCE.NS` and the results have been briefly analyzed to confirm the filter is working as expected.
+**Time estimate:** 1.5 hours
+
+
+## Task 12 — Add Volatility Score Component
+
+*   **Rationale:** The `signal_quality_results` show a weak correlation between lower volatility (`atr_pct`) and successful trades. This task formalizes that observation by adding an inverse volatility score, rewarding signals that occur during periods of lower price volatility.
+*   **Items to implement:**
+    - Modify the function signature in `src/pattern_scorer.py` from `score(window_df, current_price, sma50)` to `score(window_df, current_price, sma50, atr14)`.
+    - Inside the `score` function:
+        - Calculate `atr_pct = (atr14 / current_price) * 100`.
+        - Create a new `volatility_score` component (max 2.0 points). The score should be inversely proportional to `atr_pct`. For example, a score of 2.0 for `atr_pct` < 1.5, a score of 0 for `atr_pct` > 4.0, and scaled linearly in between.
+        - Add the `volatility_score` to the `total_score`.
+        - Update the returned dictionary and the `description` string to include the new component.
+    - In `backtester.py`, update the call to `score(...)` to pass the `atr14` value.
+    - In `backtester.py`, ensure the new `volatility_score` is included in the `daily_logs` and saved to the `run_log.csv`.
+*   **Tests to cover:**
+    - In `tests/test_scorer.py`, update existing tests for the new function signature.
+    - Add a new test case with low ATR that results in a high `volatility_score`.
+    - Add a new test case with high ATR that results in a `volatility_score` of 0.
+    - In `tests/test_backtester.py`, update the test to verify that the new `volatility_score` column exists in the generated `run_log.csv`.
+*   **Acceptance Criteria (AC):**
+    - `pattern_scorer.py` now incorporates a volatility-based score component.
+    - `backtester.py` is updated to support the new scorer signature and logging.
+    - The generated `run_log.csv` includes the `volatility_score`.
+    - All tests pass.
+*   **Definition of Done (DoD):**
+    - Changes to `pattern_scorer.py`, `backtester.py`, and their respective tests are implemented and committed.
+    - A new backtest has been run, and the new `signal_quality_results.csv` is generated to evaluate the impact of the change.
+*   **Time estimate:** 1.5 hours
