@@ -118,7 +118,7 @@ def run_backtest(
         sma50 = df["sma50"].iloc[i]
         atr14 = df["atr14"].iloc[i]
 
-        score_result = score(window_df, current_price, sma50)
+        score_result = score(window_df, current_price, sma50, atr14)
 
         # Log daily signals and indicators.
         log_entry = {
