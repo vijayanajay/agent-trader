@@ -129,9 +129,19 @@ def run_backtest(
                 )
 
         window_df = df.iloc[i - cfg.lookback_window : i]
+        market_window_df = (
+            market_regime.iloc[i - cfg.lookback_window : i]
+            if market_regime is not None
+            else pd.DataFrame()
+        )
         current_price = df["Close"].iloc[i]
         score_result = score(
-            window_df, current_price, df["sma50"].iloc[i], df["atr14"].iloc[i], scorer_cfg
+            window_df,
+            market_window_df,
+            current_price,
+            df["sma50"].iloc[i],
+            df["atr14"].iloc[i],
+            scorer_cfg,
         )
 
         log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, **df.iloc[i].to_dict(), **score_result}
@@ -144,14 +154,13 @@ def run_backtest(
                 {
                     "entry_date": current_date.strftime("%Y-%m-%d"),
                     "entry_price": round(current_price, 2),
-                        "pattern_score": score_result["final_score"],
-                        "pattern_desc": score_result["description"],
-                        # include numeric scorer components for downstream analysis
-                        "return_score": score_result.get("return_score", 0.0),
-                        "trend_consistency_score": score_result.get("trend_consistency_score", 0.0),
-                        "volume_score": score_result.get("volume_score", 0.0),
-                        "sma_score": score_result.get("sma_score", 0.0),
-                        "volatility_score": score_result.get("volatility_score", 0.0),
+                    "pattern_score": score_result["final_score"],
+                    "pattern_desc": score_result["description"],
+                    # include numeric scorer components for downstream analysis
+                    "relative_strength_score": score_result.get("relative_strength_score", 0.0),
+                    "volume_score": score_result.get("volume_score", 0.0),
+                    "sma_score": score_result.get("sma_score", 0.0),
+                    "volatility_score": score_result.get("volatility_score", 0.0),
                     **risk_params,
                     **trade_outcome,
                 }
@@ -177,7 +186,7 @@ def _save_results(
         pd.DataFrame(
             columns=[
                 "entry_date", "entry_price", "pattern_score", "pattern_desc",
-                "return_score", "trend_consistency_score", "volume_score", "sma_score", "volatility_score",
+                "relative_strength_score", "volume_score", "sma_score", "volatility_score",
                 "stop_loss", "take_profit", "outcome", "forward_return_pct"
             ]
         ).to_csv(trade_output_path, index=False)

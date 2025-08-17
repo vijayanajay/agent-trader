@@ -80,8 +80,8 @@ def test_backtester_happy_path_creates_outputs() -> None:
     assert log_df is not None, "Failed to read run log CSV."
     expected_log_cols = [
         "date", "price", "atr14", "sma50", "final_score",
-        "return_score", "volume_score", "sma_score", "volatility_score",
-        "trend_consistency_score", "description"
+            "relative_strength_score", "volume_score", "sma_score", "volatility_score",
+            "description"
     ]
     # The log can be empty if the market regime filter skips all days
     if not log_df.empty:

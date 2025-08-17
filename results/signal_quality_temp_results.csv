@@ -1,13 +1,11 @@
 outcome,feature,25%,50%,75%,count,max,mean,min
 STOP_LOSS_HIT,atr_pct,2.38,2.38,2.38,1.0,2.38,2.38,2.38
-STOP_LOSS_HIT,return_score,0.8,0.8,0.8,1.0,0.8,0.8,0.8
+STOP_LOSS_HIT,relative_strength_score,0.8,0.8,0.8,1.0,0.8,0.8,0.8
 STOP_LOSS_HIT,sma_score,3.0,3.0,3.0,1.0,3.0,3.0,3.0
-STOP_LOSS_HIT,trend_consistency_score,0.6,0.6,0.6,1.0,0.6,0.6,0.6
 STOP_LOSS_HIT,volatility_score,1.2,1.2,1.2,1.0,1.2,1.2,1.2
 STOP_LOSS_HIT,volume_score,0.5,0.5,0.5,1.0,0.5,0.5,0.5
 TAKE_PROFIT_HIT,atr_pct,2.0,2.0,2.0,1.0,2.0,2.0,2.0
-TAKE_PROFIT_HIT,return_score,1.2,1.2,1.2,1.0,1.2,1.2,1.2
+TAKE_PROFIT_HIT,relative_strength_score,1.2,1.2,1.2,1.0,1.2,1.2,1.2
 TAKE_PROFIT_HIT,sma_score,3.0,3.0,3.0,1.0,3.0,3.0,3.0
-TAKE_PROFIT_HIT,trend_consistency_score,0.7,0.7,0.7,1.0,0.7,0.7,0.7
 TAKE_PROFIT_HIT,volatility_score,1.1,1.1,1.1,1.0,1.1,1.1,1.1
 TAKE_PROFIT_HIT,volume_score,1.0,1.0,1.0,1.0,1.0,1.0,1.0

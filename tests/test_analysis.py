@@ -150,7 +150,7 @@ def sample_run_log_df() -> pd.DataFrame:
         "date": ["2023-01-05", "2023-01-06", "2023-01-10", "2023-01-15"],
         "price": [100, 102, 95, 110],
         "atr14": [2.0, 2.1, 2.5, 3.0],
-        "return_score": [8, 7, 5, 9],
+        "relative_strength_score": [8, 7, 5, 9],
         "volume_score": [7, 6, 8, 8],
         "sma_score": [9, 8, 6, 9],
     }
@@ -170,7 +170,7 @@ def test_analyze_signal_quality_logic(
     assert "STOP_LOSS_HIT" in analysis
 
     tp_stats = analysis["TAKE_PROFIT_HIT"]
-    assert tp_stats.loc["count", "return_score"] == 2
+    assert tp_stats.loc["count", "relative_strength_score"] == 2
     assert tp_stats.loc["mean", "atr_pct"] == pytest.approx(
         (2.0 / 100 * 100 + 3.0 / 110 * 100) / 2, rel=1e-2
     )
