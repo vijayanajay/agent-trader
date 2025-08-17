@@ -107,3 +107,39 @@ Status: Completed
     - A new backtest has been run on `RELIANCE.NS`.
     - The new `signal_quality_results_RELIANCE.NS.csv` has been generated and analyzed to confirm that the mean `return_score` for winning trades is now appropriately correlated with success.
 *   **Time estimate:** 3 hours
+
+Status: Completed
+
+
+## Task 14 — Implement Relative Strength Score Component
+
+*   **Rationale:** The signal quality analysis reveals that the current `return_score` is an anti-signal, rewarding unsustainable spikes. The model is context-blind. This task replaces the absolute return metric with a relative strength metric, comparing the stock's performance to the NIFTY 50 index. A stock outperforming a flat or down market is a much stronger signal than one simply rising with the tide. This is a foundational fix to improve the baseline deterministic model, per rule [H-23].
+*   **Items to implement:**
+    1.  **Modify `src/pattern_scorer.py`:**
+        -   Update the `score` function signature to accept a `market_window_df: pd.DataFrame`.
+        -   Remove the `return_score` and `trend_consistency_score` components.
+        -   Create a new `relative_strength_score` component (max 4.0 points).
+        -   Calculate the 10-day percentage return for the stock.
+        -   Calculate the 10-day percentage return for the market index (`market_window_df`).
+        -   The score should be based on the *difference*: `relative_return = stock_return - market_return`. A positive difference (outperformance) should yield a positive score. Scale it appropriately (e.g., a 5% outperformance over 10 days maps to the max score).
+        -   Update the `final_score` calculation and the `description` string to use the new `relative_strength_score`.
+    2.  **Modify `backtester.py`:**
+        -   In the main loop, create a slice of the `market_regime` DataFrame corresponding to the `window_df` lookback period.
+        -   Pass this `market_window_df` slice to the `score` function.
+        -   Update the `daily_logs` to save the new `relative_strength_score`.
+*   **Tests to cover:**
+    -   In `tests/test_scorer.py`:
+        -   Add a test case where the stock is up 5% but the market is up 10%. The `relative_strength_score` should be low or zero.
+        -   Add a test case where the stock is up 2% and the market is down 3%. The `relative_strength_score` should be high.
+        -   Update existing tests to accommodate the new function signature.
+    -   In `tests/test_backtester.py`, verify that the new `relative_strength_score` column exists in the generated `run_log.csv`.
+*   **Acceptance Criteria (AC):**
+    -   The `score` function now calculates momentum based on relative strength against the market index.
+    -   The backtester correctly provides market data to the scorer.
+    -   The `run_log.csv` reflects the new scoring component.
+    -   All unit tests pass (`python -m pytest`).
+*   **Definition of Done (DoD):**
+    -   Changes to `src/pattern_scorer.py`, `backtester.py`, and their tests are implemented and committed.
+    -   A new backtest is run on `RELIANCE.NS`.
+    -   The `signal_quality_results_RELIANCE.NS.csv` is regenerated and analyzed to confirm that the new score is a better predictor of success than the old `return_score`.
+*   **Time estimate:** 4 hours
