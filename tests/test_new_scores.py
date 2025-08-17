@@ -31,8 +31,7 @@ def test_trade_results_include_numeric_scores(tmp_path: Path) -> None:
 
     # New numeric score columns should be present in trade CSV
     for col in [
-        "return_score",
-        "trend_consistency_score",
+            "relative_strength_score",
         "volume_score",
         "sma_score",
         "volatility_score",
@@ -54,8 +53,7 @@ def test_signal_quality_output_contains_new_features(tmp_path: Path) -> None:
             "date": ["2023-01-05", "2023-01-10", "2023-01-11"],
             "price": [100.0, 105.0, 110.0],
             "atr14": [2.0, 2.5, 3.0],
-            "return_score": [1.2, 0.8, 0.5],
-            "trend_consistency_score": [0.7, 0.6, 0.5],
+            "relative_strength_score": [1.2, 0.8, 0.5],
             "volume_score": [1.0, 0.5, 0.2],
             "sma_score": [3.0, 3.0, 3.0],
             "volatility_score": [1.1, 1.2, 1.0],
@@ -90,8 +88,7 @@ def test_signal_quality_output_contains_new_features(tmp_path: Path) -> None:
     # The pivot output has a 'feature' column; check the new features are present
     features = set(out_df["feature"].tolist())
     for feat in [
-        "return_score",
-        "trend_consistency_score",
+        "relative_strength_score",
         "volume_score",
         "sma_score",
         "volatility_score",
