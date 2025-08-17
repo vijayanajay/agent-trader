@@ -2,6 +2,12 @@
 
 This document records issues, resolutions, and insights gained during the development of "Emergent Alpha" to prevent repeating mistakes.
 
+## 2025-08-16: Test Environment Mismatch
+
+- **Issue:** Running `pytest -q` failed with `ModuleNotFoundError` for `pandas` and `numpy`, even after `pip install -r requirements.txt` completed successfully. However, running `python -c "import pandas"` worked correctly.
+- **Resolution:** The issue was traced to a potential environment mismatch where the `pytest` command on the system's `PATH` did not belong to the active `pyenv` environment. The problem was resolved by running the tests using `python -m pytest -q`, which ensures that the test runner uses the same Python interpreter where the dependencies were installed. All tests passed with this command.
+- **Insight:** When `pytest` fails to find modules but a direct `python` import works, it's almost always an environment or `PATH` issue. Using `python -m pytest` is a more robust way to run tests as it explicitly ties the execution to the current Python interpreter, avoiding ambiguity. This should be the recommended practice.
+
 ## 2025-08-15: `yfinance` Data Formatting
 
 - **Issue:** The `yfinance.download()` function returns a pandas DataFrame with a multi-level column header (e.g., `('Close', 'RELIANCE.NS')`). When saved directly to CSV, this creates a malformed header that is difficult to parse.
