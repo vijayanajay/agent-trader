@@ -72,7 +72,7 @@ def analyze_signal_quality(
     for name, group in grouped:
         # describe() on the subgroup gives a clean summary DataFrame
         stats = group[existing_analysis_cols].describe().round(2)
-        analysis_by_outcome[name] = stats
+        analysis_by_outcome[str(name)] = stats
 
     return analysis_by_outcome
 
@@ -159,11 +159,11 @@ def main() -> None:
         log_df = pd.read_csv(args.log)
     except FileNotFoundError as e:
         console.print(f"[bold red]Error: File not found.[/bold red]")
-        console.print(f"Details: {e}", file=sys.stderr)
+        console.log(f"Details: {e}")
         sys.exit(1)
     except Exception as e:
         console.print(f"[bold red]Error reading CSV files.[/bold red]")
-        console.print(f"Details: {e}", file=sys.stderr)
+        console.log(f"Details: {e}")
         sys.exit(1)
 
     if "outcome" not in results_df.columns:

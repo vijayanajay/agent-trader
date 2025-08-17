@@ -45,7 +45,7 @@ def run_backtest(
         # Ensure the index is unique, keeping the first entry on duplicates.
         raw_df = raw_df[~raw_df.index.duplicated(keep="first")]
         # Remove timezone information to prevent dtype conflicts later.
-        if raw_df.index.tz is not None:
+        if isinstance(raw_df.index, pd.DatetimeIndex) and raw_df.index.tz is not None:
             raw_df.index = raw_df.index.tz_localize(None)
     except FileNotFoundError:
         print(f"Error: File not found at {csv_path}", file=sys.stderr)
@@ -61,7 +61,7 @@ def run_backtest(
         market_data_path = Path(csv_path).parent / "^NSEI.csv"
         nifty_df = pd.read_csv(market_data_path, parse_dates=["Date"], index_col="Date")
         # Remove timezone information to prevent dtype conflicts.
-        if nifty_df.index.tz is not None:
+        if isinstance(nifty_df.index, pd.DatetimeIndex) and nifty_df.index.tz is not None:
             nifty_df.index = nifty_df.index.tz_localize(None)
         if "sma200" not in nifty_df.columns:
             nifty_df["sma200"] = nifty_df["Close"].rolling(window=200).mean()

@@ -3,8 +3,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Generator
-from unittest.mock import patch
+from typing import Generator, cast
+from unittest.mock import patch, MagicMock
 
 import pandas as pd
 import pytest
@@ -79,7 +79,8 @@ def test_backtester_happy_path_creates_outputs() -> None:
     assert log_df is not None, "Failed to read run log CSV."
     expected_log_cols = [
         "date", "price", "atr14", "sma50", "final_score",
-        "return_score", "volume_score", "sma_score", "volatility_score", "description"
+        "return_score", "volume_score", "sma_score", "volatility_score",
+        "trend_consistency_score", "description"
     ]
     # The log can be empty if the market regime filter skips all days
     if not log_df.empty:
@@ -147,7 +148,7 @@ def _create_mock_nifty_data(base_df: pd.DataFrame, trend: str) -> pd.DataFrame:
 )
 @patch("pandas.read_csv")
 def test_backtester_market_regime_filter(
-    mock_read_csv, market_trend: str, expect_trades: bool
+    mock_read_csv: MagicMock, market_trend: str, expect_trades: bool
 ) -> None:
     """
     Tests the market regime filter by mocking pandas.read_csv.
@@ -156,12 +157,14 @@ def test_backtester_market_regime_filter(
     sample_df = REAL_PANDAS_READ_CSV(SAMPLE_CSV_PATH, index_col="Date", parse_dates=True)
     mock_nifty_df = _create_mock_nifty_data(sample_df, market_trend)
 
-    def read_csv_side_effect(filepath, *args, **kwargs):
+    from typing import Any
+    def read_csv_side_effect(filepath: str, *args: Any, **kwargs: Any) -> pd.DataFrame:
         # If the backtester asks for the NIFTY CSV, return our mock.
         if Path(filepath).name == "^NSEI.csv":
             return mock_nifty_df
         # Otherwise, call the real read_csv for the actual ticker data.
-        return REAL_PANDAS_READ_CSV(filepath, *args, **kwargs)
+        # The return type of read_csv can be a TextFileReader, but we know it's a DataFrame here.
+        return cast(pd.DataFrame, REAL_PANDAS_READ_CSV(filepath, *args, **kwargs))
 
     mock_read_csv.side_effect = read_csv_side_effect
 
