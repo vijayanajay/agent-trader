@@ -94,8 +94,26 @@ def main():
             normalized.append(t)
 
     success = True
+    # Always download the NIFTY 50 index as it's required for the regime filter
+    print("\nFetching required market index (^NSEI)...")
+    nifty_defaults = defaults.copy()
+    nifty_ok = download_ticker(
+        symbol="^NSEI",
+        interval=nifty_defaults.get("interval", "1d"),
+        period=nifty_defaults.get("period", "10y"),
+        start=None,
+        end=None,
+        output_path=output_dir,
+        dry_run=args.dry_run
+    )
+    if not nifty_ok:
+        print("Warning: Failed to download ^NSEI data. Backtester regime filter may not work.")
+        success = False
+
+
+    print("\nFetching tickers from config...")
     for t in normalized:
-        symbol = t.get("symbol") or t.get("ticker") or t.get("symbol") or next(iter(t.values()))
+        symbol = t.get("symbol") or t.get("ticker") or next(iter(t.values()))
         interval = t.get("interval", defaults.get("interval"))
         period = t.get("period", defaults.get("period"))
         start = t.get("start")
@@ -105,11 +123,11 @@ def main():
         # Only allow Indian tickers (basic check: .NS or .BO suffix)
         if not (symbol.endswith('.NS') or symbol.endswith('.BO')):
             print(f"Skipping non-Indian ticker: {symbol}")
-            success = False
-            continue
+            continue # This is not a failure, just a skip.
 
         ok = download_ticker(symbol, interval, period, start, end, out, dry_run=args.dry_run)
-        success = success and ok
+        if not ok:
+            success = False # A failure to download a listed ticker is a failure.
 
     return 0 if success else 1
 

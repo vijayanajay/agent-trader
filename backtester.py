@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
-import yfinance as yf
 
 from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score
@@ -45,6 +44,9 @@ def run_backtest(
         raw_df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
         # Ensure the index is unique, keeping the first entry on duplicates.
         raw_df = raw_df[~raw_df.index.duplicated(keep="first")]
+        # Remove timezone information to prevent dtype conflicts later.
+        if raw_df.index.tz is not None:
+            raw_df.index = raw_df.index.tz_localize(None)
     except FileNotFoundError:
         print(f"Error: File not found at {csv_path}", file=sys.stderr)
         sys.exit(1)
@@ -52,17 +54,21 @@ def run_backtest(
         print(f"Error reading or parsing CSV {csv_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # --- Market Regime Filter ---
+    # --- Load Market Data for Regime Filter ---
+    market_regime = None
     try:
-        nifty_df = yf.download("^NSEI", start=raw_df.index.min(), end=raw_df.index.max(), progress=False)
+        # The market data must be pre-downloaded by a separate script.
+        market_data_path = Path(csv_path).parent / "^NSEI.csv"
+        nifty_df = pd.read_csv(market_data_path, parse_dates=["Date"], index_col="Date")
+        # Remove timezone information to prevent dtype conflicts.
+        if nifty_df.index.tz is not None:
+            nifty_df.index = nifty_df.index.tz_localize(None)
         if "sma200" not in nifty_df.columns:
             nifty_df["sma200"] = nifty_df["Close"].rolling(window=200).mean()
         # Align index data with the stock data, filling missing dates.
         market_regime = nifty_df[["Close", "sma200"]].reindex(raw_df.index, method="ffill")
-    except Exception as e:
-        print(f"Warning: Could not download or process NIFTY50 data: {e}", file=sys.stderr)
-        # If market data fails, proceed without the filter.
-        market_regime = None
+    except FileNotFoundError:
+        print(f"Warning: Market data file not found at {market_data_path}. Proceeding without regime filter.", file=sys.stderr)
 
 
     min_df_len = lookback_window + FORWARD_WINDOW + 50
@@ -176,7 +182,6 @@ def main() -> None:
         default=40,
         help="The lookback window size for feature calculation (default: 40).",
     )
-    args = parser.parse_args()
     args = parser.parse_args()
 
     # Derive a filename-friendly ticker name from the provided path.
