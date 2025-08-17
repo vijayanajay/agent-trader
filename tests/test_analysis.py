@@ -5,6 +5,9 @@ import sys
 import os
 from pathlib import Path
 from src.analysis.results import analyze_results
+from src.analysis.signal_quality import analyze_signal_quality
+
+# --- Fixtures for analyze_results ---
 
 @pytest.fixture
 def sample_results_mixed() -> pd.DataFrame:
@@ -135,3 +138,132 @@ def test_analysis_cli_file_not_found() -> None:
     # Assert
     assert result.returncode != 0
     assert "Error: File not found" in result.stderr
+
+
+# --- Fixtures for analyze_signal_quality ---
+
+@pytest.fixture
+def sample_trade_results_df() -> pd.DataFrame:
+    """Fixture for sample trade results data."""
+    data = {
+        "entry_date": ["2023-01-05", "2023-01-10", "2023-01-15"],
+        "outcome": ["TAKE_PROFIT_HIT", "STOP_LOSS_HIT", "TAKE_PROFIT_HIT"],
+    }
+    df = pd.DataFrame(data)
+    df["entry_date"] = pd.to_datetime(df["entry_date"])
+    return df
+
+@pytest.fixture
+def sample_run_log_df() -> pd.DataFrame:
+    """Fixture for sample daily run log data."""
+    data = {
+        "date": ["2023-01-05", "2023-01-06", "2023-01-10", "2023-01-15"],
+        "price": [100, 102, 95, 110],
+        "atr14": [2.0, 2.1, 2.5, 3.0],
+        "return_score": [8, 7, 5, 9],
+        "volume_score": [7, 6, 8, 8],
+        "sma_score": [9, 8, 6, 9],
+    }
+    df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+# --- Unit Tests for analyze_signal_quality ---
+
+def test_analyze_signal_quality_logic(
+    sample_trade_results_df: pd.DataFrame, sample_run_log_df: pd.DataFrame
+):
+    """Tests the core analysis logic of merging and calculating stats."""
+    analysis = analyze_signal_quality(sample_trade_results_df, sample_run_log_df)
+
+    assert "TAKE_PROFIT_HIT" in analysis
+    assert "STOP_LOSS_HIT" in analysis
+
+    tp_stats = analysis["TAKE_PROFIT_HIT"]
+    assert tp_stats.loc["count", "return_score"] == 2
+    assert tp_stats.loc["mean", "atr_pct"] == pytest.approx(
+        (2.0 / 100 * 100 + 3.0 / 110 * 100) / 2, rel=1e-2
+    )
+
+    sl_stats = analysis["STOP_LOSS_HIT"]
+    assert sl_stats.loc["count", "volume_score"] == 1
+    assert sl_stats.loc["mean", "volume_score"] == 8.0
+
+
+def test_analyze_signal_quality_no_common_dates(sample_trade_results_df: pd.DataFrame):
+    """Tests behavior when log contains no matching dates for trades."""
+    log_data = {
+        "date": ["2024-01-01", "2024-01-02"], "price": [1, 1], "atr14": [1, 1],
+        "return_score": [1, 1], "volume_score": [1, 1], "sma_score": [1, 1],
+    }
+    log_df = pd.DataFrame(log_data)
+    log_df["date"] = pd.to_datetime(log_df["date"])
+
+    analysis = analyze_signal_quality(sample_trade_results_df, log_df)
+    assert not analysis  # Expect an empty dictionary
+
+
+# --- CLI Integration Tests for signal_quality.py ---
+
+SIGNAL_QUALITY_SCRIPT_PATH = "src/analysis/signal_quality.py"
+
+@pytest.fixture
+def temp_csv_paths(
+    tmp_path: Path,
+    sample_trade_results_df: pd.DataFrame,
+    sample_run_log_df: pd.DataFrame,
+) -> tuple[str, str]:
+    """Creates temporary CSV files for CLI testing."""
+    results_path = tmp_path / "temp_results.csv"
+    log_path = tmp_path / "temp_log.csv"
+    sample_trade_results_df.to_csv(results_path, index=False)
+    sample_run_log_df.to_csv(log_path, index=False)
+    return str(results_path), str(log_path)
+
+
+def test_signal_quality_cli_happy_path(temp_csv_paths: tuple[str, str]) -> None:
+    """Tests the signal_quality.py CLI script with valid inputs."""
+    results_csv, log_csv = temp_csv_paths
+    command = [
+        sys.executable,
+        SIGNAL_QUALITY_SCRIPT_PATH,
+        "--results",
+        results_csv,
+        "--log",
+        log_csv,
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
+
+    output = result.stdout
+    assert "TAKE_PROFIT_HIT Analysis" in output
+    assert "STOP_LOSS_HIT Analysis" in output
+    assert "return_score" in output
+    assert "atr_pct" in output
+    assert "mean" in output
+    assert result.stderr == ""
+
+
+def test_signal_quality_cli_no_common_trades(tmp_path: Path) -> None:
+    """Tests CLI output when the files have no common trade dates."""
+    results_data = {"entry_date": ["2023-01-01"], "outcome": ["TAKE_PROFIT_HIT"]}
+    log_data = {"date": ["2024-01-01"], "price": [100], "atr14": [1],
+                "return_score": [1], "volume_score": [1], "sma_score": [1]}
+
+    results_path = tmp_path / "results.csv"
+    log_path = tmp_path / "log.csv"
+    pd.DataFrame(results_data).to_csv(results_path, index=False)
+    pd.DataFrame(log_data).to_csv(log_path, index=False)
+
+    command = [
+        sys.executable,
+        SIGNAL_QUALITY_SCRIPT_PATH,
+        "--results",
+        str(results_path),
+        "--log",
+        str(log_path),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
+
+    assert "No common trades found to analyze" in result.stdout
