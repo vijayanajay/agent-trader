@@ -51,3 +51,9 @@ This document records issues, resolutions, and insights gained during the develo
   - `python -m src.analysis.results ...` ran without errors.
 - **Fix:** No fix was required. The instructions were correct.
 - **Learning:** The command `python -m src.analysis.results results/results.csv` is the correct way to invoke the analysis script, which is a good pattern to maintain. The initial project setup and scripts are robust.
+
+## 2025-08-17: `pytest` ModuleNotFoundError
+
+*   **Issue:** After installing dependencies from `requirements.txt`, running `pytest` resulted in `ModuleNotFoundError: No module named 'pandas'`. However, `python -c "import pandas"` worked correctly.
+*   **Root Cause:** The `pytest` executable on the system's PATH was likely not associated with the active Python virtual environment where the dependencies were installed. This can happen due to misconfigured paths or multiple Python installations.
+*   **Solution:** Invoke pytest as a module of the correct Python interpreter to ensure it uses the correct environment: `python -m pytest`. This is a more robust way to run tests, especially in environments with multiple Python versions.

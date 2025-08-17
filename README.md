@@ -36,8 +36,10 @@ The process involves running a backtest on sample data and then analyzing the re
 
 1.  **Run the Backtester:**
     This command will run the backtesting script on the sample Reliance Industries data. It will generate a `results/results.csv` file if any trade signals are found.
+
+    The default lookback window for analysis is 40 days. You can change this with the `--lookback` flag:
     ```sh
-    python backtester.py --ticker data/ohlcv/RELIANCE.NS.sample.csv
+    python backtester.py --ticker data/ohlcv/RELIANCE.NS.sample.csv --lookback 60
     ```
 
 2.  **Analyze the Results:**

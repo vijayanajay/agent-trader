@@ -19,21 +19,18 @@ from src.pattern_scorer import score
 from src.risk_manager import calculate_risk_parameters
 
 # --- Configuration ---
-# The number of historical data points required for feature calculations.
-LOOKBACK_WINDOW = 40
 # The number of future data points required to determine trade outcome.
 FORWARD_WINDOW = 20
-# Minimum number of rows required in the raw CSV to run the backtest.
-MIN_DF_LEN = LOOKBACK_WINDOW + FORWARD_WINDOW + 50  # Add buffer for SMA/ATR calc
 # The score threshold to trigger a "BUY" signal.
 SCORE_THRESHOLD = 7.0
 # Parameters for indicators.
-SMA_PERIOD = 50
+SMA50_PERIOD = 50
+SMA200_PERIOD = 200
 ATR_PERIOD = 14
 
 
 # impure
-def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
+def run_backtest(csv_path: str, lookback_window: int) -> List[Dict[str, Any]]:
     """
     Runs the backtest logic for a given ticker CSV.
 
@@ -49,14 +46,20 @@ def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
         print(f"Error reading or parsing CSV {csv_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    if len(raw_df) < MIN_DF_LEN:
+    min_df_len = lookback_window + FORWARD_WINDOW + 50
+    if len(raw_df) < min_df_len:
         # Not an error, just not enough data to process.
         return []
 
     # --- Feature Engineering ---
-    df = preprocess_data(raw_df, sma_period=SMA_PERIOD, atr_period=ATR_PERIOD)
+    df = preprocess_data(
+        raw_df,
+        sma50_period=SMA50_PERIOD,
+        sma200_period=SMA200_PERIOD,
+        atr_period=ATR_PERIOD,
+    )
 
-    if len(df) < (LOOKBACK_WINDOW + FORWARD_WINDOW):
+    if len(df) < (lookback_window + FORWARD_WINDOW):
         return []
 
     trades: List[Dict[str, Any]] = []
@@ -64,11 +67,11 @@ def run_backtest(csv_path: str) -> List[Dict[str, Any]]:
     # Iterate from the first possible day to the last possible day.
     for i in range(len(df) - FORWARD_WINDOW):
         # Ensure we have enough lookback data.
-        if i < LOOKBACK_WINDOW:
+        if i < lookback_window:
             continue
 
         current_date = df.index[i]
-        window_df = df.iloc[i - LOOKBACK_WINDOW : i]
+        window_df = df.iloc[i - lookback_window : i]
 
         current_price = df["Close"].iloc[i]
         sma50 = df["sma50"].iloc[i]
@@ -122,9 +125,15 @@ def main() -> None:
         required=True,
         help="Path to the ticker CSV file (e.g., data/ohlcv/RELIANCE.NS.sample.csv).",
     )
+    parser.add_argument(
+        "--lookback",
+        type=int,
+        default=40,
+        help="The lookback window size for feature calculation (default: 40).",
+    )
     args = parser.parse_args()
 
-    trades = run_backtest(args.ticker)
+    trades = run_backtest(args.ticker, args.lookback)
 
     output_path = "results/results.csv"
     if trades:
