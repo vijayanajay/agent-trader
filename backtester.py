@@ -144,8 +144,14 @@ def run_backtest(
                 {
                     "entry_date": current_date.strftime("%Y-%m-%d"),
                     "entry_price": round(current_price, 2),
-                    "pattern_score": score_result["final_score"],
-                    "pattern_desc": score_result["description"],
+                        "pattern_score": score_result["final_score"],
+                        "pattern_desc": score_result["description"],
+                        # include numeric scorer components for downstream analysis
+                        "return_score": score_result.get("return_score", 0.0),
+                        "trend_consistency_score": score_result.get("trend_consistency_score", 0.0),
+                        "volume_score": score_result.get("volume_score", 0.0),
+                        "sma_score": score_result.get("sma_score", 0.0),
+                        "volatility_score": score_result.get("volatility_score", 0.0),
                     **risk_params,
                     **trade_outcome,
                 }
@@ -171,6 +177,7 @@ def _save_results(
         pd.DataFrame(
             columns=[
                 "entry_date", "entry_price", "pattern_score", "pattern_desc",
+                "return_score", "trend_consistency_score", "volume_score", "sma_score", "volatility_score",
                 "stop_loss", "take_profit", "outcome", "forward_return_pct"
             ]
         ).to_csv(trade_output_path, index=False)

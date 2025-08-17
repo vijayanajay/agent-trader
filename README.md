@@ -48,6 +48,10 @@ The process involves running a backtest on sample data and then analyzing the re
     python -m src.analysis.results results/runs/RELIANCE.NS.run_log.csv
     ```
 
+Note: the trade results CSV (`results/results_<TICKER>.csv`) now includes numeric scorer columns in addition to `pattern_desc`:
+- `return_score`, `trend_consistency_score`, `volume_score`, `sma_score`, `volatility_score`
+
+
 3.  **Analyze Signal Quality:**
     This command correlates trade outcomes (e.g., wins vs. losses) with the daily scorer metrics that were present on the day of the trade signal. It helps you understand *why* the strategy is making its decisions.
 
@@ -55,3 +59,6 @@ The process involves running a backtest on sample data and then analyzing the re
     ```sh
     python -m src.analysis.signal_quality --results results/results_RELIANCE.NS.csv --log results/runs/RELIANCE.NS.run_log.csv
     ```
+
+The signal-quality analysis writes a CSV `results/signal_quality_<RESULTS_BASENAME>.csv` containing descriptive stats for each feature (features include the numeric scorer columns listed above). Use this file to correlate which score components predict successful trades.
+

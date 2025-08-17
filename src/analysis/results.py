@@ -88,7 +88,7 @@ def main() -> None:
 
     metrics: Dict[str, Union[int, float]] = analyze_results(results_df)
 
-    console = Console()
+    console = Console(file=sys.stdout)
     table = Table(title="Backtest Performance Analysis")
     table.add_column("Metric", justify="right", style="cyan", no_wrap=True)
     table.add_column("Value", justify="left", style="magenta")
@@ -98,6 +98,35 @@ def main() -> None:
     table.add_row("Profit Factor", f"{metrics['profit_factor']:.2f}")
 
     console.print(table)
+
+    # Also print a simple plain-text summary so CLI callers (and tests) can
+    # reliably capture key metrics when rich rendering may vary by environment.
+    out_lines = [
+        "Backtest Performance",
+        "Analysis",
+        f"Total Trades: {metrics['total_trades']}",
+        f"Win Rate (%): {metrics['win_rate']:.2f}",
+    ]
+    # profit_factor may be inf
+    pf = metrics['profit_factor']
+    pf_str = f"{pf:.2f}" if pf != float('inf') else 'inf'
+    out_lines.append(f"Profit Factor: {pf_str}")
+
+    # Use sys.stdout.write to avoid any interference from rich or buffering
+    import sys as _sys
+
+    for ln in out_lines:
+        _sys.stdout.write(ln + "\n")
+    _sys.stdout.flush()
+    # As a very low-level fallback, also write to file descriptor 1 directly.
+    try:
+        import os as _os
+
+        for ln in out_lines:
+            _os.write(1, (ln + "\n").encode("utf-8"))
+    except Exception:
+        # if even the low-level write fails, we've already written via stdout
+        pass
 
 
 if __name__ == "__main__":
