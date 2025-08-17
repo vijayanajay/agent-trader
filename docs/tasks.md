@@ -143,3 +143,46 @@ Status: Completed
     -   A new backtest is run on `RELIANCE.NS`.
     -   The `signal_quality_results_RELIANCE.NS.csv` is regenerated and analyzed to confirm that the new score is a better predictor of success than the old `return_score`.
 *   **Time estimate:** 4 hours
+
+Status: Completed
+
+## Task 15 — Activate the "Hinton Core": Implement LLM Pattern Analyser Agent
+
+*   **Rationale:** The deterministic scorer is now a stable and improved baseline. However, the project's core hypothesis—that an LLM can identify "emergent" patterns beyond simple heuristics—remains untested. This task activates the `Pattern_Analyser` agent as described in the PRD, replacing the deterministic momentum score with an LLM-generated analysis. This is the most critical next step to validate the project's central premise and unlock a potentially drastic improvement in signal quality, directly aligning with rule [H-23] (Deterministic baseline first).
+*   **Items to implement:**
+    1.  **Create Agent Structure:**
+        -   Create a new directory: `src/agents/`.
+        -   Create a new file `src/crew.py` to define the CrewAI crew and agents.
+    2.  **Implement `Pattern_Analyser` Agent:**
+        -   In a new file `src/agents/pattern_analyser.py`, define the `Pattern_Analyser` agent using CrewAI.
+        -   Use the exact prompt specified in `docs/prd.md` (Section 5, Agent 2), which instructs the LLM to describe patterns without jargon and provide a strength score.
+        -   Create a helper function/tool that takes a 40-day DataFrame window and formats it into the clean, normalized text block required by the prompt.
+    3.  **Implement LLM Audit Logging:**
+        -   Create a simple, robust LLM client or wrapper.
+        -   Ensure every call to the LLM strictly adheres to rule [H-22] by logging `{prompt_version, prompt_hash, model, temperature, token_count, response, timestamp}` to a new file, e.g., `results/llm_audit.log`.
+    4.  **Integrate into Backtester:**
+        -   In `backtester.py`, add a new command-line argument: `--scorer`, which can be `deterministic` (default) or `llm`.
+        -   When `--scorer llm` is used, the backtester will:
+            -   Instantiate the CrewAI crew.
+            -   Instead of calling the local `score` function, it will call `crew.kickoff()` with the formatted data window.
+            -   It must parse the JSON response from the agent. Implement robust error handling for API failures or malformed JSON.
+            -   The `llm_pattern_score` from the agent's response will replace the `relative_strength_score` in the `final_score` calculation. The other components (SMA, Volume, Volatility) will remain for now.
+    5.  **Update Logging:**
+        -   Modify the `daily_logs` in `backtester.py` to include the new LLM-generated fields: `llm_pattern_description`, `llm_pattern_score`.
+        -   Ensure these new columns are saved to the `run_log.csv`.
+*   **Tests to cover:**
+    -   Add a new test file `tests/test_agents.py`.
+    -   Write a unit test for the `Pattern_Analyser` agent that mocks the LLM API call. The test should confirm that the agent correctly processes a successful JSON response and handles a malformed/error response gracefully.
+    -   Update `tests/test_backtester.py` to run a small backtest with the `--scorer llm` flag (using a mocked CrewAI `kickoff` method) and verify that the new `llm_` columns appear in the `run_log.csv`.
+*   **Acceptance Criteria (AC):**
+    -   The `backtester.py` script accepts a `--scorer llm` argument.
+    -   When run with this flag, the script successfully executes the CrewAI agent for each day of the backtest.
+    -   A `results/llm_audit.log` file is created and populated with structured log entries for each LLM call.
+    -   The `results/runs/<TICKER>.run_log.csv` file contains the new `llm_pattern_score` and `llm_pattern_description` columns.
+    -   The system produces a `results/results_<TICKER>.csv` file based on the new LLM-driven scores.
+*   **Definition of Done (DoD):**
+    -   All new and modified code is committed to `src/`, `tests/`, and `docs/`.
+    -   All unit tests pass (`python -m pytest`).
+    -   A short backtest run on `RELIANCE.NS.sample.csv` using `--scorer llm` completes successfully and generates all expected output files.
+    -   The PRD and Architecture documents are updated to reflect the new implementation status.
+*   **Time estimate:** 24 hours
