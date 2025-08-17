@@ -45,5 +45,13 @@ The process involves running a backtest on sample data and then analyzing the re
 2.  **Analyze the Results:**
     This command reads the output from the backtester and prints a performance summary, including total trades, win rate, and profit factor.
     ```sh
-    python -m src.analysis.results results/results.csv
+    python -m src.analysis.results results/runs/RELIANCE.NS.sample.results.csv
+    ```
+
+3.  **Analyze Signal Quality:**
+    This command correlates trade outcomes (e.g., wins vs. losses) with the daily scorer metrics that were present on the day of the trade signal. It helps you understand *why* the strategy is making its decisions.
+
+    It requires both the trade results file and the daily run log file.
+    ```sh
+    python -m src.analysis.signal_quality --results results/runs/RELIANCE.NS.sample.results.csv --log results/runs/RELIANCE.NS.run_log.csv
     ```
