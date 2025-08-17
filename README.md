@@ -39,13 +39,13 @@ The process involves running a backtest on sample data and then analyzing the re
 
     The default lookback window for analysis is 40 days. You can change this with the `--lookback` flag:
     ```sh
-    python backtester.py --ticker data/ohlcv/RELIANCE.NS.sample.csv --lookback 60
+    python backtester.py --ticker data/ohlcv/RELIANCE.NS.csv --lookback 60
     ```
 
 2.  **Analyze the Results:**
     This command reads the output from the backtester and prints a performance summary, including total trades, win rate, and profit factor.
     ```sh
-    python -m src.analysis.results results/runs/RELIANCE.NS.sample.results.csv
+    python -m src.analysis.results results/runs/results_RELIANCE.NS.csv
     ```
 
 3.  **Analyze Signal Quality:**
@@ -53,5 +53,5 @@ The process involves running a backtest on sample data and then analyzing the re
 
     It requires both the trade results file and the daily run log file.
     ```sh
-    python -m src.analysis.signal_quality --results results/runs/RELIANCE.NS.sample.results.csv --log results/runs/RELIANCE.NS.run_log.csv
+    python -m src.analysis.signal_quality --results results/results_RELIANCE.NS.csv --log results/runs/RELIANCE.NS.run_log.csv
     ```

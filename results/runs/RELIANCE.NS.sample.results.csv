@@ -1,4 +1,0 @@
-entry_date,ticker,entry_price,pattern_score,stop_loss,take_profit,exit_date,exit_price,return_pct
-2025-04-30,RELIANCE.NS.sample,1405.0,7.66,1337.56,1539.87,2025-05-29,1417.8,0.91
-2025-05-02,RELIANCE.NS.sample,1419.8,7.85,1354.02,1551.36,2025-05-30,1420.9,0.08
-2025-05-05,RELIANCE.NS.sample,1431.3,7.87,1365.82,1562.26,2025-06-02,1413.7,-1.23

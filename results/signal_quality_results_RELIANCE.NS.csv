@@ -1,0 +1,13 @@
+outcome,feature,25%,50%,75%,count,max,mean,min,std
+HOLD_20_DAYS,atr_pct,2.02,2.32,2.6,29.0,3.02,2.3,1.61,0.36
+HOLD_20_DAYS,return_score,3.48,4.0,4.0,29.0,4.0,3.55,1.4,0.82
+HOLD_20_DAYS,sma_score,3.0,3.0,3.0,29.0,3.0,3.0,3.0,0.0
+HOLD_20_DAYS,volume_score,0.37,1.71,3.0,29.0,3.0,1.61,0.0,1.22
+STOP_LOSS_HIT,atr_pct,1.83,1.98,2.21,41.0,2.88,2.04,1.27,0.36
+STOP_LOSS_HIT,return_score,2.38,3.58,4.0,41.0,4.0,3.14,1.14,0.97
+STOP_LOSS_HIT,sma_score,3.0,3.0,3.0,41.0,3.0,3.0,3.0,0.0
+STOP_LOSS_HIT,volume_score,1.0,2.25,3.0,41.0,3.0,1.93,0.0,1.13
+TAKE_PROFIT_HIT,atr_pct,1.81,1.98,2.07,9.0,2.62,2.01,1.7,0.29
+TAKE_PROFIT_HIT,return_score,1.74,1.95,3.8,9.0,4.0,2.51,1.55,1.08
+TAKE_PROFIT_HIT,sma_score,3.0,3.0,3.0,9.0,3.0,3.0,3.0,0.0
+TAKE_PROFIT_HIT,volume_score,2.04,2.48,2.64,9.0,3.0,2.09,0.0,1.04

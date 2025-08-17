@@ -145,11 +145,18 @@ def main() -> None:
         help="The lookback window size for feature calculation (default: 40).",
     )
     args = parser.parse_args()
+    args = parser.parse_args()
+
+    # Derive a filename-friendly ticker name from the provided path.
+    # Use Path.stem so `data/ohlcv/RELIANCE.NS.csv` -> "RELIANCE.NS".
+    ticker_name = Path(args.ticker).stem
 
     trades, daily_logs = run_backtest(args.ticker, args.lookback)
 
     # --- Save Trades ---
-    trade_output_path = "results/results.csv"
+    results_dir = Path("results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    trade_output_path = results_dir / f"results_{ticker_name}.csv"
     if trades:
         results_df = pd.DataFrame(trades)
         results_df.to_csv(trade_output_path, index=False)

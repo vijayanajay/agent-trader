@@ -106,6 +106,32 @@ def _print_analysis_tables(
         console.print(table)
 
 
+def write_analysis_csv(analysis_by_outcome: Dict[str, pd.DataFrame], out_path: str) -> None:
+    """Write the analysis_by_outcome into a single long-form CSV.
+
+    The output will have columns: outcome, metric (count, mean, std, ...),
+    feature (e.g., return_score), and value.
+    """
+    if not analysis_by_outcome:
+        return
+
+    rows = []
+    for outcome, stats_df in analysis_by_outcome.items():
+        # stats_df: index is metric (count, mean, etc.), columns are features
+        for metric in stats_df.index:
+            for feature in stats_df.columns:
+                val = stats_df.at[metric, feature]
+                rows.append({"outcome": outcome, "metric": metric, "feature": feature, "value": val})
+
+    out_df = pd.DataFrame(rows)
+    # Pivot to have one row per (outcome, feature) and metric columns
+    pivot = out_df.pivot_table(index=["outcome", "feature"], columns="metric", values="value").reset_index()
+    # flatten columns
+    pivot.columns.name = None
+    pivot.to_csv(out_path, index=False)
+
+
+
 # impure
 def main() -> None:
     """
@@ -151,6 +177,17 @@ def main() -> None:
 
     analysis_by_outcome = analyze_signal_quality(results_df, log_df)
     _print_analysis_tables(analysis_by_outcome, console)
+
+    # Default output path: results/signal_quality_<RESULTS_BASENAME>.csv
+    try:
+        import os
+
+        results_base = os.path.splitext(os.path.basename(args.results))[0]
+        default_out = os.path.join("results", f"signal_quality_{results_base}.csv")
+        write_analysis_csv(analysis_by_outcome, default_out)
+        console.print(f"[green]Wrote analysis CSV to:[/green] {default_out}")
+    except Exception as e:
+        console.print(f"[yellow]Warning: failed to write analysis CSV: {e}[/yellow]")
 
 
 if __name__ == "__main__":
