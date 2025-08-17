@@ -10,77 +10,86 @@ __all__ = ["score"]
 RETURN_SCORE_MAX = 4.0
 VOLUME_SCORE_MAX = 3.0
 SMA_BONUS_SCORE = 3.0
+VOLATILITY_SCORE_MAX = 2.0
 
 # Logic parameters
 RETURN_LOOKBACK_DAYS = 10
-# A 10% return (0.1) should map to a full score. Scale factor = 4.0 / 0.1 = 40.0
-RETURN_SCORE_SCALE_FACTOR = RETURN_SCORE_MAX / 0.1
-# A 100% volume surge (ratio of 2.0) should map to a full score.
-# Scale factor = 3.0 / (2.0 - 1.0) = 3.0
-VOLUME_SCORE_SCALE_FACTOR = VOLUME_SCORE_MAX / 1.0
+RETURN_SCORE_SCALE_FACTOR = RETURN_SCORE_MAX / 0.1  # 10% return maps to max score
+VOLUME_SCORE_SCALE_FACTOR = VOLUME_SCORE_MAX / 1.0  # 100% surge maps to max score
+
+# Volatility parameters (lower is better)
+VOLATILITY_TARGET_PCT_LOW = 1.5  # ATR% below this gets max score
+VOLATILITY_TARGET_PCT_HIGH = 4.0  # ATR% above this gets zero score
 # --- End Scoring Configuration ---
 
 
 def score(
-    window_df: pd.DataFrame, current_price: float, sma50: float
+    window_df: pd.DataFrame, current_price: float, sma50: float, atr14: float
 ) -> Dict[str, Any]:
     """
     Scores a data window based on deterministic rules.
 
     Components:
-    1. Recent return (scaled, 0-4 points).
-    2. Volume surge (current vs median, 0-3 points).
-    3. Position vs sma50 (above => bonus, 3 points).
+    1. Recent return (0-4 points).
+    2. Volume surge (0-3 points).
+    3. Position vs sma50 (3 points bonus).
+    4. Inverse volatility (low ATR% gets 0-2 points bonus).
 
     Args:
         window_df: DataFrame of OHLCV data for the lookback period.
         current_price: The current closing price.
         sma50: The 50-day simple moving average for the current day.
+        atr14: The 14-day Average True Range.
 
     Returns:
-        A dictionary containing the score and a description.
+        A dictionary containing the score components and a description.
     """
     # 1. Return Score
-    lookback_period = RETURN_LOOKBACK_DAYS + 1  # Need N+1 days for N-day return
+    lookback_period = RETURN_LOOKBACK_DAYS + 1
     if len(window_df) < lookback_period:
         return {
             "final_score": 0.0,
             "return_score": 0.0,
             "volume_score": 0.0,
             "sma_score": 0.0,
+            "volatility_score": 0.0,
             "description": f"Not enough data for {RETURN_LOOKBACK_DAYS}-day return.",
         }
+
     price_n_days_ago = window_df["Close"].iloc[-lookback_period]
-    return_pct = (
-        (current_price - price_n_days_ago) / price_n_days_ago
-        if price_n_days_ago
-        else 0
-    )
-    return_score = min(
-        max(0, return_pct * RETURN_SCORE_SCALE_FACTOR), RETURN_SCORE_MAX
-    )
+    return_pct = (current_price - price_n_days_ago) / price_n_days_ago if price_n_days_ago else 0
+    return_score = min(max(0, return_pct * RETURN_SCORE_SCALE_FACTOR), RETURN_SCORE_MAX)
 
     # 2. Volume Surge Score
     median_volume = window_df["Volume"].median()
     current_volume = window_df["Volume"].iloc[-1]
     volume_score = 0.0
     if median_volume > 0:
-        volume_ratio = current_volume / median_volume
-        # Score is based on the increase over the median (ratio - 1)
-        surge_factor = volume_ratio - 1
-        volume_score = min(
-            max(0, surge_factor * VOLUME_SCORE_SCALE_FACTOR), VOLUME_SCORE_MAX
-        )
+        surge_factor = (current_volume / median_volume) - 1
+        volume_score = min(max(0, surge_factor * VOLUME_SCORE_SCALE_FACTOR), VOLUME_SCORE_MAX)
 
     # 3. SMA Bonus
     sma_score = SMA_BONUS_SCORE if not pd.isna(sma50) and current_price > sma50 else 0.0
 
-    total_score = round(return_score + volume_score + sma_score, 2)
+    # 4. Volatility Score (Inverse relationship)
+    volatility_score = 0.0
+    # Only award volatility bonus if there is positive momentum.
+    if return_score > 0 and current_price > 0 and not pd.isna(atr14):
+        atr_pct = (atr14 / current_price) * 100
+        if atr_pct <= VOLATILITY_TARGET_PCT_LOW:
+            volatility_score = VOLATILITY_SCORE_MAX
+        elif atr_pct < VOLATILITY_TARGET_PCT_HIGH:
+            # Linear interpolation between high and low thresholds
+            volatility_range = VOLATILITY_TARGET_PCT_HIGH - VOLATILITY_TARGET_PCT_LOW
+            volatility_score = VOLATILITY_SCORE_MAX * (
+                (VOLATILITY_TARGET_PCT_HIGH - atr_pct) / volatility_range
+            )
+
+    total_score = round(return_score + volume_score + sma_score + volatility_score, 2)
 
     desc = (
-        f"Return({return_score:.1f}/{RETURN_SCORE_MAX:.0f}), "
-        f"Volume({volume_score:.1f}/{VOLUME_SCORE_MAX:.0f}), "
-        f"SMA({sma_score:.1f}/{SMA_BONUS_SCORE:.0f})"
+        f"Ret({return_score:.1f}) Vol({volume_score:.1f}) "
+        f"SMA({sma_score:.1f}) Volatility({volatility_score:.1f})"
     )
 
     return {
@@ -88,5 +97,6 @@ def score(
         "return_score": return_score,
         "volume_score": volume_score,
         "sma_score": sma_score,
+        "volatility_score": volatility_score,
         "description": desc,
     }
