@@ -25,6 +25,10 @@ SAMPLE_TICKER_STEM = Path(SAMPLE_CSV_PATH).stem
 SAMPLE_RESULTS_PATH = RESULTS_DIR / f"results_{SAMPLE_TICKER_STEM}.csv"
 SAMPLE_RUN_LOG_PATH = RUN_LOG_DIR / f"{SAMPLE_TICKER_STEM}.run_log.csv"
 
+# Store a reference to the real pandas.read_csv before it gets mocked
+# This is crucial to avoid recursion errors in the mock's side_effect.
+REAL_PANDAS_READ_CSV = pd.read_csv
+
 
 @pytest.fixture(autouse=True)
 def cleanup_results_files() -> Generator[None, None, None]:
@@ -141,17 +145,25 @@ def _create_mock_nifty_data(base_df: pd.DataFrame, trend: str) -> pd.DataFrame:
         ("down", False),
     ],
 )
-@patch("backtester.yf.download")
+@patch("pandas.read_csv")
 def test_backtester_market_regime_filter(
-    mock_yf_download, market_trend: str, expect_trades: bool
+    mock_read_csv, market_trend: str, expect_trades: bool
 ) -> None:
     """
-    Tests the market regime filter by mocking yfinance.download.
+    Tests the market regime filter by mocking pandas.read_csv.
     """
     # Arrange
-    sample_df = pd.read_csv(SAMPLE_CSV_PATH, index_col="Date", parse_dates=True)
+    sample_df = REAL_PANDAS_READ_CSV(SAMPLE_CSV_PATH, index_col="Date", parse_dates=True)
     mock_nifty_df = _create_mock_nifty_data(sample_df, market_trend)
-    mock_yf_download.return_value = mock_nifty_df
+
+    def read_csv_side_effect(filepath, *args, **kwargs):
+        # If the backtester asks for the NIFTY CSV, return our mock.
+        if Path(filepath).name == "^NSEI.csv":
+            return mock_nifty_df
+        # Otherwise, call the real read_csv for the actual ticker data.
+        return REAL_PANDAS_READ_CSV(filepath, *args, **kwargs)
+
+    mock_read_csv.side_effect = read_csv_side_effect
 
     # Act
     trades, daily_logs = run_backtest(csv_path=SAMPLE_CSV_PATH, lookback_window=40)
