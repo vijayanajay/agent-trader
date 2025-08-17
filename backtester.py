@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import yfinance as yf
 
 from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score
@@ -42,12 +43,27 @@ def run_backtest(
     """
     try:
         raw_df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
+        # Ensure the index is unique, keeping the first entry on duplicates.
+        raw_df = raw_df[~raw_df.index.duplicated(keep="first")]
     except FileNotFoundError:
         print(f"Error: File not found at {csv_path}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"Error reading or parsing CSV {csv_path}: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # --- Market Regime Filter ---
+    try:
+        nifty_df = yf.download("^NSEI", start=raw_df.index.min(), end=raw_df.index.max(), progress=False)
+        if "sma200" not in nifty_df.columns:
+            nifty_df["sma200"] = nifty_df["Close"].rolling(window=200).mean()
+        # Align index data with the stock data, filling missing dates.
+        market_regime = nifty_df[["Close", "sma200"]].reindex(raw_df.index, method="ffill")
+    except Exception as e:
+        print(f"Warning: Could not download or process NIFTY50 data: {e}", file=sys.stderr)
+        # If market data fails, proceed without the filter.
+        market_regime = None
+
 
     min_df_len = lookback_window + FORWARD_WINDOW + 50
     if len(raw_df) < min_df_len:
@@ -74,6 +90,22 @@ def run_backtest(
             continue
 
         current_date = df.index[i]
+
+        # --- Apply Market Regime Filter ---
+        if market_regime is not None:
+            try:
+                # Ensure a DataFrame is returned, then extract scalar values from the first row.
+                regime_data = market_regime.loc[[current_date]]
+                close_val = regime_data["Close"].iloc[0]
+                sma_val = regime_data["sma200"].iloc[0]
+
+                if pd.notna(sma_val) and (close_val < sma_val):
+                    continue  # Skip if market is in a downtrend.
+            except KeyError:
+                 # If date not in index, continue without filter for that day.
+                 pass
+
+
         window_df = df.iloc[i - lookback_window : i]
 
         current_price = df["Close"].iloc[i]
