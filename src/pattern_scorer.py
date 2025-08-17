@@ -1,105 +1,138 @@
 # -*- coding: utf-8 -*-
+from dataclasses import dataclass
 from typing import Any, Dict
 
 import pandas as pd
 
-__all__ = ["score"]
+__all__ = ["score", "ScorerConfig"]
 
-# --- Scoring Configuration ---
-# Component weights
-RETURN_SCORE_MAX = 4.0
-VOLUME_SCORE_MAX = 3.0
-SMA_BONUS_SCORE = 3.0
-VOLATILITY_SCORE_MAX = 2.0
 
-# Logic parameters
-RETURN_LOOKBACK_DAYS = 10
-RETURN_SCORE_SCALE_FACTOR = RETURN_SCORE_MAX / 0.1  # 10% return maps to max score
-VOLUME_SCORE_SCALE_FACTOR = VOLUME_SCORE_MAX / 1.0  # 100% surge maps to max score
+@dataclass
+class ScorerConfig:
+    """Explicit configuration for the deterministic scorer."""
 
-# Volatility parameters (lower is better)
-VOLATILITY_TARGET_PCT_LOW = 1.5  # ATR% below this gets max score
-VOLATILITY_TARGET_PCT_HIGH = 4.0  # ATR% above this gets zero score
-# --- End Scoring Configuration ---
+    return_lookback_days: int = 10
+    return_score_max: float = 4.0
+    volume_score_max: float = 3.0
+    sma_bonus_score: float = 3.0
+    volatility_score_max: float = 2.0
+    volatility_target_pct_low: float = 1.5
+    volatility_target_pct_high: float = 4.0
+
+    @property
+    def return_score_scale_factor(self) -> float:
+        """Maps a 10% return to the max score."""
+        return self.return_score_max / 0.1
+
+    @property
+    def volume_score_scale_factor(self) -> float:
+        """Maps a 100% volume surge to the max score."""
+        return self.volume_score_max / 1.0
+
+
+def _calculate_return_score(
+    df: pd.DataFrame, price: float, cfg: ScorerConfig
+) -> Dict[str, Any]:
+    """Calculates return score, adjusted for trend consistency."""
+    lookback = cfg.return_lookback_days + 1
+    if len(df) < lookback:
+        return {"return_score": 0.0, "trend_consistency_score": 0.0}
+
+    recent_closes = df["Close"].iloc[-lookback:]
+    price_ago = recent_closes.iloc[0]
+    return_pct = (price - price_ago) / price_ago if price_ago else 0.0
+    raw_score = min(max(0, return_pct * cfg.return_score_scale_factor), cfg.return_score_max)
+
+    up_days = (recent_closes.diff().dropna() > 0).sum()
+    consistency = up_days / cfg.return_lookback_days
+    return {"return_score": raw_score * consistency, "trend_consistency_score": consistency}
+
+
+def _calculate_volume_score(df: pd.DataFrame, cfg: ScorerConfig) -> float:
+    """Calculates volume surge score."""
+    median_vol = df["Volume"].median()
+    current_vol = df["Volume"].iloc[-1]
+    if median_vol > 0:
+        surge = (current_vol / median_vol) - 1.0
+        return min(max(0, surge * cfg.volume_score_scale_factor), cfg.volume_score_max)
+    return 0.0
+
+
+def _calculate_volatility_score(
+    price: float, atr14: float, return_score: float, cfg: ScorerConfig
+) -> float:
+    """
+    Calculates inverse volatility score, rewarding low ATR.
+    Per tested logic, this bonus is only applied if there is positive momentum.
+    """
+    if return_score <= 0 or price <= 0 or pd.isna(atr14):
+        return 0.0
+
+    atr_pct = (atr14 / price) * 100
+    if atr_pct <= cfg.volatility_target_pct_low:
+        return cfg.volatility_score_max
+    if atr_pct >= cfg.volatility_target_pct_high:
+        return 0.0
+
+    vol_range = cfg.volatility_target_pct_high - cfg.volatility_target_pct_low
+    if vol_range <= 0:
+        return 0.0
+    return cfg.volatility_score_max * ((cfg.volatility_target_pct_high - atr_pct) / vol_range)
 
 
 def score(
-    window_df: pd.DataFrame, current_price: float, sma50: float, atr14: float
+    window_df: pd.DataFrame,
+    current_price: float,
+    sma50: float,
+    atr14: float,
+    config: ScorerConfig = ScorerConfig(),
 ) -> Dict[str, Any]:
     """
-    Scores a data window based on deterministic rules.
-
-    Components:
-    1. Recent return, adjusted for trend consistency (0-4 points).
-    2. Volume surge (0-3 points).
-    3. Position vs sma50 (3 points bonus).
-    4. Inverse volatility (low ATR% gets 0-2 points bonus).
+    Scores a data window based on a deterministic, configurable ruleset.
 
     Args:
         window_df: DataFrame of OHLCV data for the lookback period.
         current_price: The current closing price.
         sma50: The 50-day simple moving average for the current day.
         atr14: The 14-day Average True Range.
+        config: A ScorerConfig object with scoring parameters.
 
     Returns:
         A dictionary containing the score components and a description.
     """
-    # 1. Return and Trend Quality Score
-    lookback_period = RETURN_LOOKBACK_DAYS + 1
-    if len(window_df) < lookback_period:
+    min_data_len = config.return_lookback_days + 1
+    if len(window_df) < min_data_len:
         return {
-            "final_score": 0.0, "return_score": 0.0, "volume_score": 0.0, "sma_score": 0.0,
-            "volatility_score": 0.0, "trend_consistency_score": 0.0,
-            "description": f"Not enough data for {RETURN_LOOKBACK_DAYS}-day analysis.",
+            "final_score": 0.0, "return_score": 0.0, "volume_score": 0.0,
+            "sma_score": 0.0, "volatility_score": 0.0, "trend_consistency_score": 0.0,
+            "description": f"Not enough data for {config.return_lookback_days}-day analysis.",
         }
 
-    recent_closes = window_df["Close"].iloc[-lookback_period:]
-    price_n_days_ago = recent_closes.iloc[0]
-    return_pct = (current_price - price_n_days_ago) / price_n_days_ago if price_n_days_ago else 0
-    raw_return_score = min(max(0, return_pct * RETURN_SCORE_SCALE_FACTOR), RETURN_SCORE_MAX)
+    # --- Calculate Score Components ---
+    return_scores = _calculate_return_score(window_df, current_price, config)
+    volume_score = _calculate_volume_score(window_df, config)
+    sma_score = config.sma_bonus_score if not pd.isna(sma50) and current_price > sma50 else 0.0
+    volatility_score = _calculate_volatility_score(
+        current_price, atr14, return_scores["return_score"], config
+    )
 
-    # Penalize volatile trends by rewarding consistency.
-    up_days = (pd.to_numeric(recent_closes.diff().dropna()) > 0).sum()
-    trend_consistency_score = up_days / RETURN_LOOKBACK_DAYS
-    return_score = raw_return_score * trend_consistency_score
-
-    # 2. Volume Surge Score
-    median_volume = window_df["Volume"].median()
-    current_volume = window_df["Volume"].iloc[-1]
-    volume_score = 0.0
-    if median_volume > 0:
-        surge_factor = (current_volume / median_volume) - 1
-        volume_score = min(max(0, surge_factor * VOLUME_SCORE_SCALE_FACTOR), VOLUME_SCORE_MAX)
-
-    # 3. SMA Bonus
-    sma_score = SMA_BONUS_SCORE if not pd.isna(sma50) and current_price > sma50 else 0.0
-
-    # 4. Volatility Score (Inverse relationship)
-    volatility_score = 0.0
-    # Only award volatility bonus if there is positive momentum.
-    if return_score > 0 and current_price > 0 and not pd.isna(atr14):
-        atr_pct = (atr14 / current_price) * 100
-        if atr_pct <= VOLATILITY_TARGET_PCT_LOW:
-            volatility_score = VOLATILITY_SCORE_MAX
-        elif atr_pct < VOLATILITY_TARGET_PCT_HIGH:
-            volatility_range = VOLATILITY_TARGET_PCT_HIGH - VOLATILITY_TARGET_PCT_LOW
-            volatility_score = VOLATILITY_SCORE_MAX * (
-                (VOLATILITY_TARGET_PCT_HIGH - atr_pct) / volatility_range
-            )
-
-    total_score = round(return_score + volume_score + sma_score + volatility_score, 2)
+    total_score = round(
+        return_scores["return_score"] + volume_score + sma_score + volatility_score, 2
+    )
 
     desc = (
-        f"Ret({return_score:.1f}) Trend({trend_consistency_score:.2f}) "
-        f"Vol({volume_score:.1f}) SMA({sma_score:.1f}) Volatility({volatility_score:.1f})"
+        f"Ret({return_scores['return_score']:.1f}) "
+        f"Trend({return_scores['trend_consistency_score']:.2f}) "
+        f"Vol({volume_score:.1f}) SMA({sma_score:.1f}) "
+        f"Volatility({volatility_score:.1f})"
     )
 
     return {
         "final_score": total_score,
-        "return_score": return_score,
+        "description": desc,
+        "return_score": return_scores["return_score"],
+        "trend_consistency_score": return_scores["trend_consistency_score"],
         "volume_score": volume_score,
         "sma_score": sma_score,
         "volatility_score": volatility_score,
-        "trend_consistency_score": trend_consistency_score,
-        "description": desc,
     }
