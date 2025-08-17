@@ -4,38 +4,41 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Generator
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
+from backtester import run_backtest
+
 # --- Test Configuration ---
 SAMPLE_CSV_PATH = "data/ohlcv/RELIANCE.NS.sample.csv"
-RESULTS_CSV_PATH = "results/results.csv"
 BACKTESTER_SCRIPT_PATH = "backtester.py"
 
 
 # --- Test Derived Paths ---
-RUN_LOG_DIR = Path("results/runs")
+RESULTS_DIR = Path("results")
+RUN_LOG_DIR = RESULTS_DIR / "runs"
+
+# Path for the main test using the sample file
 SAMPLE_TICKER_STEM = Path(SAMPLE_CSV_PATH).stem
-RUN_LOG_PATH = RUN_LOG_DIR / f"{SAMPLE_TICKER_STEM}.run_log.csv"
+SAMPLE_RESULTS_PATH = RESULTS_DIR / f"results_{SAMPLE_TICKER_STEM}.csv"
+SAMPLE_RUN_LOG_PATH = RUN_LOG_DIR / f"{SAMPLE_TICKER_STEM}.run_log.csv"
 
 
 @pytest.fixture(autouse=True)
 def cleanup_results_files() -> Generator[None, None, None]:
     """Ensure results files are clean before and after each test."""
-    if os.path.exists(RESULTS_CSV_PATH):
-        os.remove(RESULTS_CSV_PATH)
-    if os.path.exists(RUN_LOG_PATH):
-        os.remove(RUN_LOG_PATH)
-    if os.path.exists(RUN_LOG_DIR) and not os.listdir(RUN_LOG_DIR):
-        os.rmdir(RUN_LOG_DIR)
+    files_to_remove = [SAMPLE_RESULTS_PATH, SAMPLE_RUN_LOG_PATH]
+    for f in files_to_remove:
+        if f.exists():
+            f.unlink()
+
     yield
-    if os.path.exists(RESULTS_CSV_PATH):
-        os.remove(RESULTS_CSV_PATH)
-    if os.path.exists(RUN_LOG_PATH):
-        os.remove(RUN_LOG_PATH)
-    if os.path.exists(RUN_LOG_DIR) and not os.listdir(RUN_LOG_DIR):
-        os.rmdir(RUN_LOG_DIR)
+
+    for f in files_to_remove:
+        if f.exists():
+            f.unlink()
 
 
 def test_backtester_happy_path_creates_outputs() -> None:
@@ -56,9 +59,9 @@ def test_backtester_happy_path_creates_outputs() -> None:
     # Assert
     assert result.returncode == 0, f"Backtester script failed with error:\n{result.stderr}"
 
-    # 1. Verify trade results file (`results.csv`)
-    assert Path(RESULTS_CSV_PATH).exists(), "Trade results CSV was not created."
-    results_df = pd.read_csv(RESULTS_CSV_PATH)
+    # 1. Verify trade results file
+    assert SAMPLE_RESULTS_PATH.exists(), "Trade results CSV was not created."
+    results_df = pd.read_csv(SAMPLE_RESULTS_PATH)
     assert results_df is not None, "Failed to read trade results CSV."
     expected_trade_cols = [
         "entry_date", "entry_price", "pattern_score", "pattern_desc",
@@ -66,15 +69,17 @@ def test_backtester_happy_path_creates_outputs() -> None:
     ]
     assert all(col in results_df.columns for col in expected_trade_cols)
 
-    # 2. Verify daily run log file (`...run_log.csv`)
-    assert RUN_LOG_PATH.exists(), "Daily run log CSV was not created."
-    log_df = pd.read_csv(RUN_LOG_PATH)
-    assert not log_df.empty, "Run log CSV is empty."
+    # 2. Verify daily run log file
+    assert SAMPLE_RUN_LOG_PATH.exists(), "Daily run log CSV was not created."
+    log_df = pd.read_csv(SAMPLE_RUN_LOG_PATH)
+    assert log_df is not None, "Failed to read run log CSV."
     expected_log_cols = [
         "date", "price", "atr14", "sma50", "final_score",
         "return_score", "volume_score", "sma_score", "description"
     ]
-    assert all(col in log_df.columns for col in expected_log_cols)
+    # The log can be empty if the market regime filter skips all days
+    if not log_df.empty:
+        assert all(col in log_df.columns for col in expected_log_cols)
 
 
 def test_backtester_no_data_creates_empty_results_csv() -> None:
@@ -100,10 +105,63 @@ def test_backtester_no_data_creates_empty_results_csv() -> None:
 
     # Assert
     assert result.returncode == 0, f"Backtester script failed with error:\n{result.stderr}"
-    assert Path(RESULTS_CSV_PATH).exists(), "Results CSV file was not created for the no-data case."
 
-    results_df = pd.read_csv(RESULTS_CSV_PATH)
+    temp_ticker_stem = Path(temp_csv_path).stem
+    results_path = RESULTS_DIR / f"results_{temp_ticker_stem}.csv"
+
+    assert results_path.exists(), "Results CSV file was not created for the no-data case."
+
+    results_df = pd.read_csv(results_path)
     assert results_df.empty, "Results CSV should be empty for insufficient data."
 
     # Cleanup the temporary file
     os.remove(temp_csv_path)
+    if results_path.exists():
+        os.remove(results_path)
+
+
+def _create_mock_nifty_data(base_df: pd.DataFrame, trend: str) -> pd.DataFrame:
+    """Creates a mock NIFTY DataFrame with a specific trend."""
+    nifty_df = pd.DataFrame(index=base_df.index)
+    if trend == "up":
+        # Price is always above SMA200
+        nifty_df["Close"] = 20000
+        nifty_df["sma200"] = 19000
+    elif trend == "down":
+        # Price is always below SMA200
+        nifty_df["Close"] = 18000
+        nifty_df["sma200"] = 19000
+    return nifty_df
+
+
+@pytest.mark.parametrize(
+    "market_trend, expect_trades",
+    [
+        ("up", True),
+        ("down", False),
+    ],
+)
+@patch("backtester.yf.download")
+def test_backtester_market_regime_filter(
+    mock_yf_download, market_trend: str, expect_trades: bool
+) -> None:
+    """
+    Tests the market regime filter by mocking yfinance.download.
+    """
+    # Arrange
+    sample_df = pd.read_csv(SAMPLE_CSV_PATH, index_col="Date", parse_dates=True)
+    mock_nifty_df = _create_mock_nifty_data(sample_df, market_trend)
+    mock_yf_download.return_value = mock_nifty_df
+
+    # Act
+    trades, daily_logs = run_backtest(csv_path=SAMPLE_CSV_PATH, lookback_window=40)
+
+    # Assert
+    if expect_trades:
+        # In an uptrend, we expect the backtester to process days, so logs should exist.
+        # We don't assert that trades must be found, as that depends on the scorer.
+        assert len(daily_logs) > 0, "Should have processed days in an uptrend market."
+    else:
+        # In a downtrend, the filter should skip all days, resulting in no logs or trades.
+        assert len(daily_logs) == 0, "Should not have processed any days in a downtrend."
+        assert len(trades) == 0, "Should not have found trades in a downtrend market."
