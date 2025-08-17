@@ -37,11 +37,13 @@ def test_score_bullish_scenario() -> None:
 
     # Assert
     assert "final_score" in result
+    assert "trend_consistency_score" in result
     assert "description" in result
     assert isinstance(result["final_score"], (float, np.floating))
     # Previous high score was > 8.0. With volatility, it can be higher.
     assert result["final_score"] > 9.0, "Score should be high in bullish case"
     assert "Volatility" in result["description"]
+    assert "Trend" in result["description"]
 
 
 def test_score_flat_scenario() -> None:
@@ -136,3 +138,35 @@ def test_score_with_edge_cases() -> None:
     window_df = _create_synthetic_data(prices, volumes)
     result_zero_price = score(window_df, 0.0, 5.0, 0.1)
     assert result_zero_price["final_score"] == 0.0
+
+
+def test_score_trend_consistency() -> None:
+    """
+    Tests that the score correctly penalizes choppy trends and rewards smooth trends,
+    even if the total return is similar.
+    """
+    # --- Case 1: Choppy trend with a big final jump (low consistency) ---
+    # 10-day return is 10%, but only 1 up day.
+    choppy_prices = [100.0] * 30 + [99.0, 98.0, 97.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0, 110.0]
+    choppy_window = _create_synthetic_data(choppy_prices, [1000] * 40)
+    choppy_result = score(choppy_window, 110.0, 95.0, 2.0)
+
+    # Assert consistency is low (1 up day / 10)
+    assert choppy_result["trend_consistency_score"] == 0.1
+    # Return component should be heavily penalized
+    assert choppy_result["return_score"] < 1.0
+
+    # --- Case 2: Smooth, consistent trend (high consistency) ---
+    # 10-day return is also 10%, but with 10 up days.
+    smooth_prices = [100.0] * 30 + [100.0 + i for i in range(1, 11)] # 101, 102, ... 110
+    smooth_window = _create_synthetic_data(smooth_prices, [1000] * 40)
+    smooth_result = score(smooth_window, 110.0, 95.0, 2.0)
+
+    # Assert consistency is high (10 up days / 10)
+    assert smooth_result["trend_consistency_score"] == 1.0
+    # Return component should be high
+    assert smooth_result["return_score"] > 3.5
+
+    # --- Comparison ---
+    # The final score for the smooth trend should be significantly higher.
+    assert smooth_result["final_score"] > choppy_result["final_score"]
