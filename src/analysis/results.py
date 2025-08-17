@@ -33,21 +33,34 @@ def analyze_results(results_df: pd.DataFrame) -> Dict[str, Union[int, float]]:
     if results_df.empty:
         return {"total_trades": 0, "win_rate": 0.0, "profit_factor": 0.0}
 
+    # Backtester writes 'forward_return_pct'. Support either name for compatibility.
+    if "return_pct" in results_df.columns:
+        ret_col = "return_pct"
+    elif "forward_return_pct" in results_df.columns:
+        ret_col = "forward_return_pct"
+    else:
+        # No recognizable return column; treat as no trades.
+        return {"total_trades": 0, "win_rate": 0.0, "profit_factor": 0.0}
+
     total_trades: int = len(results_df)
-    winning_trades: pd.Series = results_df[results_df["return_pct"] > 0]["return_pct"]
-    losing_trades: pd.Series = results_df[results_df["return_pct"] < 0]["return_pct"]
+    winning_trades: pd.Series = results_df[results_df[ret_col] > 0][ret_col]
+    losing_trades: pd.Series = results_df[results_df[ret_col] < 0][ret_col]
 
     win_rate: float = (len(winning_trades) / total_trades) * 100 if total_trades > 0 else 0.0
 
     gross_profit: float = winning_trades.sum()
     gross_loss: float = abs(losing_trades.sum())
 
-    profit_factor: float = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+    if gross_loss > 0:
+        profit_factor: float = gross_profit / gross_loss
+    else:
+        # If there are wins but no losses, profit factor is infinite; if no trades, return 0.
+        profit_factor = float("inf") if gross_profit > 0 else 0.0
 
     return {
         "total_trades": total_trades,
         "win_rate": round(win_rate, 2),
-        "profit_factor": round(profit_factor, 2),
+        "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else float("inf"),
     }
 
 
