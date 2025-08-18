@@ -98,3 +98,20 @@ This document records issues, resolutions, and insights gained during the develo
 *   **Issue:** Analysis of backtest results showed that the `return_score` was higher for losing trades than for winning trades. This was because the scorer was rewarding sharp, unsustainable price spikes (e.g., a 10% jump in one day after 9 days of decline) over smooth, consistent uptrends.
 *   **Resolution:** A `trend_consistency_score` was introduced in `src/pattern_scorer.py`. This component calculates the ratio of "up days" to total days in the lookback period and acts as a multiplier on the raw `return_score`. A high return achieved with low consistency (few up days) is now heavily penalized, while a moderate return achieved with high consistency is rewarded.
 *   **Insight:** The raw magnitude of a return is not a sufficient indicator of quality. The *path* of the return matters. By adding a measure of trend quality, the scorer is now better aligned with identifying sustainable momentum. This required adding new unit tests to `tests/test_scorer.py` to assert that a choppy trend receives a lower score than a smooth trend with the same overall return.
+
+## 2025-08-17: Environment and Dependency Hell (Task 15)
+
+*   **Issue:** A significant amount of time was lost due to a fragile and inconsistent Python environment. `pip install -r requirements.txt` would consistently time out. An alternative installer, `uv`, appeared to work but resulted in a broken state where `pytest` could not find any installed modules (`ModuleNotFoundError`).
+*   **Resolution:** After many failed attempts, the final resolution was to install each core new dependency (`pandas`, `pytest`, `python-dotenv`, `crewai`, `setuptools`) one by one with a long timeout. This painstaking process eventually resulted in a stable environment.
+*   **Insight:** Complex dependency trees, especially with rapidly evolving AI libraries, can be very fragile. When automated installers fail, a manual, one-by-one installation can help isolate the problematic package or resolve network timeout issues. This is a last resort but can unblock a project.
+
+## 2025-08-17: `crewai` API Incompatibility (Task 15)
+
+*   **Issue:** The installed version of `crewai` (0.30.11) had multiple API differences from the available documentation and examples.
+    1.  `BaseTool` was not found in `crewai.tools`.
+    2.  The `@tool` decorator was not found in `crewai.tools` or `crewai`.
+    3.  Passing a standard `openai.OpenAI` client to `crewai.Agent` resulted in an `AttributeError: 'OpenAI' object has no attribute 'bind'`.
+*   **Resolution:**
+    1.  Inspecting the library's contents with `dir()` revealed that the base class for tools is now `StructuredTool` located in `crewai.tools.agent_tools`. The tool was refactored to use this class.
+    2.  The `crewai.Agent` expects a `langchain`-compatible LLM object. The client was changed to use `langchain_openai.ChatOpenAI` to wrap the connection details. This resolved the `.bind()` error.
+*   **Insight:** When working with fast-moving libraries, documentation can quickly become outdated. Direct inspection of the library's modules (`dir(module)`) is an invaluable debugging tool to discover the correct, current API. Assume nothing and verify the actual available classes and functions.

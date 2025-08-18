@@ -3,7 +3,7 @@
 *   **Version:** 1.0
 *   **Date:** October 26, 2023
 *   **Author:** System AI
-*   **Status:** For Implementation
+*   **Status:** The deterministic backtester is implemented. The first agent (`Pattern_Analyser`) and its crew have been implemented as an optional scorer. The architecture remains valid.
 
 ### 1. Philosophy & Guiding Principles
 

@@ -185,3 +185,44 @@ def test_backtester_market_regime_filter(
         # In a downtrend, the filter should skip all days, resulting in no logs or trades.
         assert len(daily_logs) == 0, "Should not have processed any days in a downtrend."
         assert len(trades) == 0, "Should not have found trades in a downtrend market."
+
+
+@patch("backtester.run_crew_analysis")
+def test_backtester_llm_scorer_happy_path(mock_run_crew_analysis: MagicMock) -> None:
+    """
+    Tests that the backtester with '--scorer llm' creates outputs with the correct
+    LLM-specific columns by calling the function directly.
+    """
+    # Arrange: Mock the crew analysis to return a consistent, successful result
+    mock_run_crew_analysis.return_value = {
+        "pattern_description": "LLM mock description",
+        "pattern_strength_score": 9.5,
+        "rationale": "LLM mock rationale",
+    }
+
+    bt_config = BacktestConfig(scorer_type="llm", score_threshold=9.0)
+    scorer_config = ScorerConfig()
+
+    # Act
+    trades, daily_logs = run_backtest(
+        csv_path=SAMPLE_CSV_PATH, cfg=bt_config, scorer_cfg=scorer_config
+    )
+
+    # Assert
+    assert len(trades) > 0, "LLM scorer should have produced trades with the mock."
+    assert len(daily_logs) > 0, "LLM scorer should have produced daily logs."
+
+    # 1. Verify trade results have LLM fields
+    first_trade = trades[0]
+    expected_trade_cols = ["llm_pattern_score", "llm_pattern_description"]
+    assert all(col in first_trade for col in expected_trade_cols)
+    assert "relative_strength_score" not in first_trade
+    assert "volume_score" not in first_trade
+    assert first_trade["pattern_score"] == 9.5
+    assert first_trade["llm_pattern_score"] == 9.5
+    assert first_trade["pattern_desc"] == "LLM mock rationale"
+
+    # 2. Verify daily run log has LLM fields
+    first_log = daily_logs[-1] # Check one of the later logs where a trade would be
+    expected_log_cols = ["llm_pattern_score", "llm_pattern_description"]
+    assert all(col in first_log for col in expected_log_cols)

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, overload, Tuple, Union
 
 import pandas as pd
 
@@ -48,7 +48,7 @@ def _calculate_relative_strength_score(
 
     relative_return = stock_return - market_return
     score = relative_return * cfg.relative_strength_score_scale_factor
-    return min(max(0, score), cfg.relative_strength_score_max)
+    return float(min(max(0, score), cfg.relative_strength_score_max))
 
 
 def _calculate_volume_score(df: pd.DataFrame, cfg: ScorerConfig) -> float:
@@ -83,6 +83,7 @@ def _calculate_volatility_score(
     return cfg.volatility_score_max * ((cfg.volatility_target_pct_high - atr_pct) / vol_range)
 
 
+@overload
 def score(
     window_df: pd.DataFrame,
     market_window_df: pd.DataFrame,
@@ -90,7 +91,34 @@ def score(
     sma50: float,
     atr14: float,
     config: ScorerConfig = ScorerConfig(),
+    *,
+    components_only: bool = False,
 ) -> Dict[str, Any]:
+    ...
+
+@overload
+def score(
+    window_df: pd.DataFrame,
+    market_window_df: pd.DataFrame,
+    current_price: float,
+    sma50: float,
+    atr14: float,
+    config: ScorerConfig = ScorerConfig(),
+    *,
+    components_only: bool = True,
+) -> Tuple[float, float, float, float]:
+    ...
+
+def score(
+    window_df: pd.DataFrame,
+    market_window_df: pd.DataFrame,
+    current_price: float,
+    sma50: float,
+    atr14: float,
+    config: ScorerConfig = ScorerConfig(),
+    *,
+    components_only: bool = False,
+) -> Union[Dict[str, Any], Tuple[float, float, float, float]]:
     """
     Scores a data window based on a deterministic, configurable ruleset.
 
@@ -101,9 +129,11 @@ def score(
         sma50: The 50-day simple moving average for the current day.
         atr14: The 14-day Average True Range.
         config: A ScorerConfig object with scoring parameters.
+        components_only: If True, returns only a tuple of numeric scores.
 
     Returns:
-        A dictionary containing the score components and a description.
+        A dictionary containing the score components and a description,
+        or a tuple of scores if components_only is True.
     """
     min_data_len = config.relative_strength_lookback_days + 1
     if len(window_df) < min_data_len:
@@ -120,6 +150,9 @@ def score(
     volatility_score = _calculate_volatility_score(
         current_price, atr14, relative_strength_score, config
     )
+
+    if components_only:
+        return relative_strength_score, volume_score, sma_score, volatility_score
 
     total_score = round(
         relative_strength_score + volume_score + sma_score + volatility_score, 2
