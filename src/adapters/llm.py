@@ -81,7 +81,7 @@ def get_llm_client() -> ChatOpenAI:
     # potential version incompatibilities with proxy handling in underlying
     # libraries. OpenRouter recommends setting Referer and X-Title headers.
     return ChatOpenAI(
-        model=LLM_MODEL,
+        model=f"openrouter/{LLM_MODEL}" if LLM_MODEL else None,
         openai_api_key=OPENROUTER_API_KEY,
         openai_api_base="https://openrouter.ai/api/v1",
         temperature=0.5,

@@ -95,6 +95,7 @@ def create_pattern_analyser_agent(llm_client: ChatOpenAI) -> Agent:
         llm=llm_client,
         allow_delegation=False,
         verbose=True,  # Set to True for debugging
+        tools=[],
     )
 
 __all__ = ["create_pattern_analyser_agent", "PATTERN_ANALYSER_PROMPT", "format_data_for_llm"]
