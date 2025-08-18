@@ -2,3 +2,6 @@ pandas==2.3.1
 pytest==8.4.1
 yfinance==0.2.65
 rich
+crewai==0.30.11
+openai==1.14.3
+python-dotenv==1.0.1

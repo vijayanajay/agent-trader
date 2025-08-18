@@ -12,7 +12,7 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -20,11 +20,22 @@ from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score, ScorerConfig
 from src.risk_manager import calculate_risk_parameters
 
+# --- Conditional Imports ---
+# To avoid heavy imports when not using the LLM scorer
+_llm_scorer_imported = False
+run_crew_analysis: Optional[Callable[[Any], Dict[str, Any]]] = None
+try:
+    from src.crew import run_crew_analysis
+    _llm_scorer_imported = True
+except ImportError:
+    pass
+
 
 @dataclass
 class BacktestConfig:
     """Configuration for the backtester execution."""
 
+    scorer_type: str = "deterministic"
     forward_window: int = 20
     score_threshold: float = 7.0
     lookback_window: int = 40
@@ -99,6 +110,10 @@ def run_backtest(
     """
     Runs the backtest logic for a given ticker CSV. Impure due to I/O.
     """
+    if cfg.scorer_type == "llm" and not _llm_scorer_imported:
+        print("Error: --scorer llm requires crewai and dependencies.", file=sys.stderr)
+        print("Please run 'pip install -r requirements.txt'.", file=sys.stderr)
+        sys.exit(1)
     raw_df = _load_data(csv_path)
     market_regime = _load_market_data(csv_path, raw_df.index)
 
@@ -129,20 +144,40 @@ def run_backtest(
                 )
 
         window_df = df.iloc[i - cfg.lookback_window : i]
-        market_window_df = (
-            market_regime.iloc[i - cfg.lookback_window : i]
-            if market_regime is not None
-            else pd.DataFrame()
-        )
         current_price = df["Close"].iloc[i]
-        score_result = score(
-            window_df,
-            market_window_df,
-            current_price,
-            df["sma50"].iloc[i],
-            df["atr14"].iloc[i],
-            scorer_cfg,
-        )
+
+        if cfg.scorer_type == "llm" and run_crew_analysis is not None:
+            llm_result = run_crew_analysis(window_df)
+            if "error" in llm_result:
+                print(f"LLM Error on {current_date.date()}: {llm_result.get('error')}", file=sys.stderr)
+                score_result = {"final_score": 0, "description": "LLM_ERROR"}
+            else:
+                # Mimic the deterministic scorer's output structure
+                llm_score = float(llm_result.get("pattern_strength_score", "0.0"))
+                # Keep other scores for now, though they won't be in final_score
+                _, _, sma_score, vol_score = score(window_df, pd.DataFrame(), current_price, df["sma50"].iloc[i], df["atr14"].iloc[i], scorer_cfg, components_only=True)
+                score_result = {
+                    "llm_pattern_score": llm_score,
+                    "llm_pattern_description": llm_result.get("pattern_description", ""),
+                    "final_score": llm_score, # For LLM, final_score is just the LLM's score
+                    "description": llm_result.get("rationale", ""),
+                    "sma_score": sma_score,
+                    "volatility_score": vol_score,
+                }
+        else:
+             market_window_df = (
+                market_regime.iloc[i - cfg.lookback_window : i]
+                if market_regime is not None
+                else pd.DataFrame()
+             )
+             score_result = score(
+                window_df,
+                market_window_df,
+                current_price,
+                df["sma50"].iloc[i],
+                df["atr14"].iloc[i],
+                scorer_cfg,
+            )
 
         log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, **df.iloc[i].to_dict(), **score_result}
         daily_logs.append(log_entry)
@@ -150,27 +185,32 @@ def run_backtest(
         if score_result["final_score"] >= cfg.score_threshold:
             risk_params = calculate_risk_parameters(current_price, df["atr14"].iloc[i])
             trade_outcome = _get_trade_outcome(df, i, risk_params, cfg)
-            trades.append(
-                {
-                    "entry_date": current_date.strftime("%Y-%m-%d"),
-                    "entry_price": round(current_price, 2),
-                    "pattern_score": score_result["final_score"],
-                    "pattern_desc": score_result["description"],
-                    # include numeric scorer components for downstream analysis
-                    "relative_strength_score": score_result.get("relative_strength_score", 0.0),
-                    "volume_score": score_result.get("volume_score", 0.0),
-                    "sma_score": score_result.get("sma_score", 0.0),
-                    "volatility_score": score_result.get("volatility_score", 0.0),
-                    **risk_params,
-                    **trade_outcome,
-                }
-            )
+            trade_entry = {
+                "entry_date": current_date.strftime("%Y-%m-%d"),
+                "entry_price": round(current_price, 2),
+                "pattern_score": score_result["final_score"],
+                "pattern_desc": score_result["description"],
+                **risk_params,
+                **trade_outcome,
+            }
+            # Add relevant scores based on which scorer was used
+            if cfg.scorer_type == "llm":
+                trade_entry["llm_pattern_score"] = score_result.get("llm_pattern_score", 0.0)
+                trade_entry["llm_pattern_description"] = score_result.get("llm_pattern_description", "")
+            else:
+                trade_entry["relative_strength_score"] = score_result.get("relative_strength_score", 0.0)
+                trade_entry["volume_score"] = score_result.get("volume_score", 0.0)
+
+            trade_entry["sma_score"] = score_result.get("sma_score", 0.0)
+            trade_entry["volatility_score"] = score_result.get("volatility_score", 0.0)
+
+            trades.append(trade_entry)
     return trades, daily_logs
 
 
 # impure
 def _save_results(
-    trades: List[Dict[str, Any]], daily_logs: List[Dict[str, Any]], ticker_name: str
+    trades: List[Dict[str, Any]], daily_logs: List[Dict[str, Any]], ticker_name: str, scorer_type: str
 ) -> None:
     """Saves trade results and daily logs to CSV files."""
     results_dir = Path("results")
@@ -183,13 +223,16 @@ def _save_results(
     else:
         print("No trades triggered.")
         # Ensure empty file has the correct headers for downstream processing
-        pd.DataFrame(
-            columns=[
-                "entry_date", "entry_price", "pattern_score", "pattern_desc",
-                "relative_strength_score", "volume_score", "sma_score", "volatility_score",
-                "stop_loss", "take_profit", "outcome", "forward_return_pct"
-            ]
-        ).to_csv(trade_output_path, index=False)
+        base_cols = [
+            "entry_date", "entry_price", "pattern_score", "pattern_desc",
+            "sma_score", "volatility_score",
+            "stop_loss", "take_profit", "outcome", "forward_return_pct"
+        ]
+        if scorer_type == "llm":
+            scorer_cols = ["llm_pattern_score", "llm_pattern_description"]
+        else:
+            scorer_cols = ["relative_strength_score", "volume_score"]
+        pd.DataFrame(columns=base_cols + scorer_cols).to_csv(trade_output_path, index=False)
 
     if daily_logs:
         log_dir = Path("results/runs")
@@ -207,17 +250,29 @@ def main() -> None:
         "--ticker", type=str, required=True, help="Path to the ticker CSV file."
     )
     parser.add_argument(
+        "--scorer",
+        type=str,
+        default="deterministic",
+        choices=["deterministic", "llm"],
+        help="Scoring model to use (default: deterministic)."
+    )
+    parser.add_argument(
         "--lookback", type=int, default=40, help="Lookback window size (default: 40)."
     )
     args = parser.parse_args()
 
     ticker_name = Path(args.ticker).stem
-    bt_config = BacktestConfig(lookback_window=args.lookback)
+    bt_config = BacktestConfig(
+        scorer_type=args.scorer,
+        lookback_window=args.lookback
+    )
     scorer_config = ScorerConfig()
 
     trades, daily_logs = run_backtest(args.ticker, bt_config, scorer_config)
-    _save_results(trades, daily_logs, ticker_name)
+    _save_results(trades, daily_logs, ticker_name, args.scorer)
 
 
 if __name__ == "__main__":
+    # To use the LLM scorer, you need to set the OPENROUTER_API_KEY in a .env file
+    # e.g.: OPENROUTER_API_KEY="your-key"
     main()

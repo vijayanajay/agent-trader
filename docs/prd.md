@@ -3,7 +3,7 @@
 *   **Version:** 1.0
 *   **Date:** October 26, 2023
 *   **Author:** System AI
-*   **Status:** Proposed
+*   **Status:** The deterministic backtester (MVP) is complete. The `Pattern_Analyser` agent (Task 15) is implemented and integrated behind a `--scorer llm` flag.
 
 ### 1. Overview
 
