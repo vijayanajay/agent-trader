@@ -27,8 +27,8 @@ run_crew_analysis: Optional[Callable[[Any], Dict[str, Any]]] = None
 try:
     from src.crew import run_crew_analysis
     _llm_scorer_imported = True
-except ImportError:
-    pass
+except ImportError as e:
+    print(f"LLM scorer import failed: {e}", file=sys.stderr)
 
 
 @dataclass
@@ -153,7 +153,16 @@ def run_backtest(
                 score_result = {"final_score": 0, "description": "LLM_ERROR"}
             else:
                 # Mimic the deterministic scorer's output structure
-                llm_score = float(llm_result.get("pattern_strength_score", "0.0"))
+                llm_score_raw = llm_result.get("pattern_strength_score")
+                # Handle case where score is null or missing
+                if llm_score_raw is None or llm_score_raw == "null":
+                    llm_score = 0.0
+                else:
+                    try:
+                        llm_score = float(llm_score_raw)
+                    except (ValueError, TypeError):
+                        llm_score = 0.0
+                        
                 # Keep other scores for now, though they won't be in final_score
                 _, _, sma_score, vol_score = score(window_df, pd.DataFrame(), current_price, df["sma50"].iloc[i], df["atr14"].iloc[i], scorer_cfg, components_only=True)
                 score_result = {

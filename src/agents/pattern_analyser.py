@@ -1,11 +1,9 @@
 from textwrap import dedent
-from typing import List, Type
+from typing import List
 
 import pandas as pd
 from crewai import Agent
-from crewai.tools.agent_tools import StructuredTool
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel  # type: ignore
 
 # --- AGENT PROMPT ---
 
@@ -41,59 +39,44 @@ PATTERN_ANALYSER_PROMPT = dedent(
 """
 )
 
-# --- AGENT TOOLS ---
+# --- DATA FORMATTING ---
 
+def format_data_for_llm(window_df: pd.DataFrame) -> str:
+    """
+    Formats the provided DataFrame into a clean, normalized text block.
+    """
+    if len(window_df) != 40:
+        padding = 40 - len(window_df)
+        window_df = pd.concat([pd.DataFrame([[None] * len(window_df.columns)], columns=window_df.columns, index=[None] * padding), window_df])
 
-class WindowDFSchema(BaseModel):  # type: ignore
-    """Pydantic schema for the tool's input."""
-    window_df: pd.DataFrame
+    close_min, close_max = window_df["Close"].min(), window_df["Close"].max()
+    volume_min, volume_max = window_df["Volume"].min(), window_df["Volume"].max()
 
-    class Config:
-        arbitrary_types_allowed = True
+    close_range = close_max - close_min if close_max > close_min else 1
+    volume_range = volume_max - volume_min if volume_max > volume_min else 1
 
-class FormatDataForLLMTool(StructuredTool):
-    name: str = "format_data_for_llm"
-    description: str = (
-        "Formats a 40-day stock data window into a normalized, "
-        "text-based block for LLM analysis."
-    )
-    args_schema: Type[BaseModel] = WindowDFSchema
+    window_df = window_df.copy()
+    window_df["norm_close"] = ((window_df["Close"] - close_min) / close_range) * 100
+    window_df["norm_volume"] = ((window_df["Volume"] - volume_min) / volume_range) * 100
 
-    def _run(self, window_df: pd.DataFrame) -> str:
-        """
-        Formats the provided DataFrame into a clean, normalized text block.
-        """
-        if len(window_df) != 40:
-            padding = 40 - len(window_df)
-            window_df = pd.concat([pd.DataFrame([[None] * len(window_df.columns)], columns=window_df.columns, index=[None] * padding), window_df])
-
-        close_min, close_max = window_df["Close"].min(), window_df["Close"].max()
-        volume_min, volume_max = window_df["Volume"].min(), window_df["Volume"].max()
-
-        close_range = close_max - close_min if close_max > close_min else 1
-        volume_range = volume_max - volume_min if volume_max > volume_min else 1
-
-        window_df["norm_close"] = ((window_df["Close"] - close_min) / close_range) * 100
-        window_df["norm_volume"] = ((window_df["Volume"] - volume_min) / volume_range) * 100
-
-        data_lines: List[str] = []
-        for _, row in window_df.iterrows():
-            if pd.notna(row['Close']):
-                data_lines.append(
-                    f"Date: {row.name.strftime('%Y-%m-%d')}, "
-                    f"Close: {row['Close']:.2f}, "
-                    f"Norm Close: {row['norm_close']:.0f}, "
-                    f"Volume: {row['Volume']:,.0f}, "
-                    f"Norm Vol: {row['norm_volume']:.0f}"
-                )
-        return "\n".join(data_lines)
+    data_lines: List[str] = []
+    for _, row in window_df.iterrows():
+        if pd.notna(row['Close']):
+            data_lines.append(
+                f"Date: {row.name.strftime('%Y-%m-%d')}, "
+                f"Close: {row['Close']:.2f}, "
+                f"Norm Close: {row['norm_close']:.0f}, "
+                f"Volume: {row['Volume']:,.0f}, "
+                f"Norm Vol: {row['norm_volume']:.0f}"
+            )
+    return "\n".join(data_lines)
 
 
 # --- AGENT DEFINITION ---
 
 def create_pattern_analyser_agent(llm_client: ChatOpenAI) -> Agent:
     """
-    Creates the Pattern Analyser agent with its specific prompt, tools, and LLM.
+    Creates the Pattern Analyser agent with its specific prompt and LLM.
     """
     return Agent(
         role="Expert Quantitative Analyst",
@@ -110,9 +93,8 @@ def create_pattern_analyser_agent(llm_client: ChatOpenAI) -> Agent:
             momentum. Your analysis is prized for its clarity and objectivity."""
         ),
         llm=llm_client,
-        tools=[FormatDataForLLMTool()],
         allow_delegation=False,
         verbose=True,  # Set to True for debugging
     )
 
-__all__ = ["create_pattern_analyser_agent", "PATTERN_ANALYSER_PROMPT"]
+__all__ = ["create_pattern_analyser_agent", "PATTERN_ANALYSER_PROMPT", "format_data_for_llm"]

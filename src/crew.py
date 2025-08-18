@@ -5,7 +5,11 @@ import pandas as pd
 from crewai import Crew, Task
 
 from src.adapters.llm import get_llm_client
-from src.agents.pattern_analyser import create_pattern_analyser_agent
+from src.agents.pattern_analyser import (
+    PATTERN_ANALYSER_PROMPT,
+    create_pattern_analyser_agent,
+    format_data_for_llm,
+)
 
 
 # impure
@@ -23,31 +27,28 @@ def run_crew_analysis(data_window: pd.DataFrame) -> Dict[str, Any]:
     # 2. Create the agent
     analyst_agent = create_pattern_analyser_agent(llm_client)
 
-    # 3. Define the analysis task. The tool will format the data.
-    # The `description` provides the context for the task.
+    # 3. Format the data
+    formatted_data = format_data_for_llm(data_window)
+
+    # 4. Define the analysis task with pre-formatted data
     analysis_task = Task(
-        description=(
-            "Use the provided tool to format the 40-day data window. "
-            "Then, analyze the formatted data to identify emergent patterns "
-            "and assess the 20-day forward outlook."
-        ),
+        description=PATTERN_ANALYSER_PROMPT.format(formatted_data=formatted_data),
         expected_output=(
             "A single JSON object with three keys: 'pattern_description', "
             "'pattern_strength_score', and 'rationale'."
         ),
         agent=analyst_agent,
-        tools=analyst_agent.tools,
     )
 
-    # 4. Assemble and run the crew
+    # 5. Assemble and run the crew
     crew = Crew(
         agents=[analyst_agent],
         tasks=[analysis_task],
         verbose=0,  # Set to 0 for production, 2 for debugging
     )
 
-    # The `window_df` is passed as input, which the tool will use.
-    result = crew.kickoff(inputs={"window_df": data_window})
+    # Run the crew
+    result = crew.kickoff()
     if not result:
         return {"error": "No response from crew"}
 
