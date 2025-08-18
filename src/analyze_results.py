@@ -6,15 +6,13 @@ This script reads a CSV file containing trade results and computes:
 - Win rate
 - Profit factor
 
-The results are printed to the console in a formatted table.
+The results are printed to the console.
 """
 import argparse
 import sys
 from typing import Dict, List, Union
 
 import pandas as pd
-from rich.console import Console
-from rich.table import Table
 
 __all__: List[str] = ["analyze_results"]
 
@@ -28,14 +26,15 @@ def analyze_results(results_df: pd.DataFrame) -> Dict[str, Union[int, float]]:
 
     Returns:
         A dictionary containing total trades, win rate, and profit factor.
-        Returns empty metrics if the DataFrame is empty.
+        Returns empty metrics if the DataFrame is empty or lacks the column.
     """
-    if results_df.empty:
+    if results_df.empty or "forward_return_pct" not in results_df.columns:
         return {"total_trades": 0, "win_rate": 0.0, "profit_factor": 0.0}
 
     total_trades: int = len(results_df)
-    winning_trades: pd.Series = results_df[results_df["return_pct"] > 0]["return_pct"]
-    losing_trades: pd.Series = results_df[results_df["return_pct"] < 0]["return_pct"]
+    # The column is named 'forward_return_pct' in backtester.py
+    winning_trades: pd.Series = results_df[results_df["forward_return_pct"] > 0]["forward_return_pct"]
+    losing_trades: pd.Series = results_df[results_df["forward_return_pct"] < 0]["forward_return_pct"]
 
     win_rate: float = (len(winning_trades) / total_trades) * 100 if total_trades > 0 else 0.0
 
@@ -60,7 +59,9 @@ def main() -> None:
     parser.add_argument(
         "results_path",
         type=str,
-        help="Path to the results CSV file.",
+        nargs="?",
+        default="results/results.csv",
+        help="Path to the results CSV file (default: results/results.csv).",
     )
     args = parser.parse_args()
 
@@ -75,16 +76,11 @@ def main() -> None:
 
     metrics: Dict[str, Union[int, float]] = analyze_results(results_df)
 
-    console = Console()
-    table = Table(title="Backtest Performance Analysis")
-    table.add_column("Metric", justify="right", style="cyan", no_wrap=True)
-    table.add_column("Value", justify="left", style="magenta")
-
-    table.add_row("Total Trades", str(metrics["total_trades"]))
-    table.add_row("Win Rate (%)", f"{metrics['win_rate']:.2f}")
-    table.add_row("Profit Factor", f"{metrics['profit_factor']:.2f}")
-
-    console.print(table)
+    print("--- Backtest Performance Analysis ---")
+    print(f"Total Trades:    {metrics['total_trades']}")
+    print(f"Win Rate (%):    {metrics['win_rate']:.2f}")
+    print(f"Profit Factor:   {metrics['profit_factor']:.2f}")
+    print("------------------------------------")
 
 
 if __name__ == "__main__":
