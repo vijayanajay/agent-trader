@@ -12,23 +12,15 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score, ScorerConfig
 from src.risk_manager import calculate_risk_parameters
-
-# --- Conditional Imports ---
-# To avoid heavy imports when not using the LLM scorer
-_llm_scorer_imported = False
-run_crew_analysis: Optional[Callable[[Any], Dict[str, Any]]] = None
-try:
-    from src.crew import run_crew_analysis
-    _llm_scorer_imported = True
-except ImportError as e:
-    print(f"LLM scorer import failed: {e}", file=sys.stderr)
+from src.adapters.llm import get_llm_analysis
+from src.data_preprocessor import format_data_for_llm
 
 
 @dataclass
@@ -110,10 +102,6 @@ def run_backtest(
     """
     Runs the backtest logic for a given ticker CSV. Impure due to I/O.
     """
-    if cfg.scorer_type == "llm" and not _llm_scorer_imported:
-        print("Error: --scorer llm requires crewai and dependencies.", file=sys.stderr)
-        print("Please run 'pip install -r requirements.txt'.", file=sys.stderr)
-        sys.exit(1)
     raw_df = _load_data(csv_path)
     market_regime = _load_market_data(csv_path, raw_df.index)
 
@@ -145,41 +133,34 @@ def run_backtest(
 
         window_df = df.iloc[i - cfg.lookback_window : i]
         current_price = df["Close"].iloc[i]
+        score_result: Dict[str, Any]
 
-        if cfg.scorer_type == "llm" and run_crew_analysis is not None:
-            llm_result = run_crew_analysis(window_df)
+        if cfg.scorer_type == "llm":
+            formatted_data = format_data_for_llm(window_df)
+            llm_result = get_llm_analysis(formatted_data)
+
             if "error" in llm_result:
-                print(f"LLM Error on {current_date.date()}: {llm_result.get('error')}", file=sys.stderr)
+                print(f"LLM Error on {current_date.date()}: {llm_result.get('details')}", file=sys.stderr)
                 score_result = {"final_score": 0, "description": "LLM_ERROR"}
             else:
-                # Mimic the deterministic scorer's output structure
-                llm_score_raw = llm_result.get("pattern_strength_score")
-                # Handle case where score is null or missing
-                if llm_score_raw is None or llm_score_raw == "null":
+                try:
+                    llm_score = float(llm_result.get("pattern_strength_score", 0.0))
+                except (ValueError, TypeError):
                     llm_score = 0.0
-                else:
-                    try:
-                        llm_score = float(llm_score_raw)
-                    except (ValueError, TypeError):
-                        llm_score = 0.0
-                        
-                # Keep other scores for now, though they won't be in final_score
-                _, _, sma_score, vol_score = score(window_df, pd.DataFrame(), current_price, df["sma50"].iloc[i], df["atr14"].iloc[i], scorer_cfg, components_only=True)
+
                 score_result = {
+                    "final_score": llm_score,
+                    "description": llm_result.get("rationale", ""),
                     "llm_pattern_score": llm_score,
                     "llm_pattern_description": llm_result.get("pattern_description", ""),
-                    "final_score": llm_score, # For LLM, final_score is just the LLM's score
-                    "description": llm_result.get("rationale", ""),
-                    "sma_score": sma_score,
-                    "volatility_score": vol_score,
                 }
         else:
-             market_window_df = (
+            market_window_df = (
                 market_regime.iloc[i - cfg.lookback_window : i]
                 if market_regime is not None
                 else pd.DataFrame()
-             )
-             score_result = score(
+            )
+            score_result = score(
                 window_df,
                 market_window_df,
                 current_price,
@@ -191,35 +172,29 @@ def run_backtest(
         log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, **df.iloc[i].to_dict(), **score_result}
         daily_logs.append(log_entry)
 
-        if score_result["final_score"] >= cfg.score_threshold:
+        if score_result.get("final_score", 0.0) >= cfg.score_threshold:
             risk_params = calculate_risk_parameters(current_price, df["atr14"].iloc[i])
             trade_outcome = _get_trade_outcome(df, i, risk_params, cfg)
             trade_entry = {
                 "entry_date": current_date.strftime("%Y-%m-%d"),
                 "entry_price": round(current_price, 2),
-                "pattern_score": score_result["final_score"],
-                "pattern_desc": score_result["description"],
+                "pattern_score": score_result.get("final_score", 0.0),
+                "pattern_desc": score_result.get("description", ""),
                 **risk_params,
                 **trade_outcome,
+                **score_result,  # Add all score components to the trade log
             }
-            # Add relevant scores based on which scorer was used
-            if cfg.scorer_type == "llm":
-                trade_entry["llm_pattern_score"] = score_result.get("llm_pattern_score", 0.0)
-                trade_entry["llm_pattern_description"] = score_result.get("llm_pattern_description", "")
-            else:
-                trade_entry["relative_strength_score"] = score_result.get("relative_strength_score", 0.0)
-                trade_entry["volume_score"] = score_result.get("volume_score", 0.0)
-
-            trade_entry["sma_score"] = score_result.get("sma_score", 0.0)
-            trade_entry["volatility_score"] = score_result.get("volatility_score", 0.0)
-
             trades.append(trade_entry)
+
     return trades, daily_logs
 
 
 # impure
 def _save_results(
-    trades: List[Dict[str, Any]], daily_logs: List[Dict[str, Any]], ticker_name: str, scorer_type: str
+    trades: List[Dict[str, Any]],
+    daily_logs: List[Dict[str, Any]],
+    ticker_name: str,
+    scorer_type: str,
 ) -> None:
     """Saves trade results and daily logs to CSV files."""
     results_dir = Path("results")
@@ -227,21 +202,21 @@ def _save_results(
     trade_output_path = results_dir / f"results_{ticker_name}.csv"
 
     if trades:
-        pd.DataFrame(trades).to_csv(trade_output_path, index=False)
+        pd.DataFrame(trades).to_csv(trade_output_path, index=False, float_format="%.2f")
         print(f"Found {len(trades)} trades. Results saved to {trade_output_path}")
     else:
         print("No trades triggered.")
-        # Ensure empty file has the correct headers for downstream processing
+        # Define all possible headers to ensure schema is consistent
         base_cols = [
             "entry_date", "entry_price", "pattern_score", "pattern_desc",
-            "sma_score", "volatility_score",
             "stop_loss", "take_profit", "outcome", "forward_return_pct"
         ]
-        if scorer_type == "llm":
-            scorer_cols = ["llm_pattern_score", "llm_pattern_description"]
-        else:
-            scorer_cols = ["relative_strength_score", "volume_score"]
-        pd.DataFrame(columns=base_cols + scorer_cols).to_csv(trade_output_path, index=False)
+        det_cols = ["relative_strength_score", "volume_score", "sma_score", "volatility_score"]
+        llm_cols = ["llm_pattern_score", "llm_pattern_description"]
+
+        # Use the correct set of headers for the scorer type
+        headers = base_cols + (llm_cols if scorer_type == "llm" else det_cols)
+        pd.DataFrame(columns=headers).to_csv(trade_output_path, index=False)
 
     if daily_logs:
         log_dir = Path("results/runs")
@@ -282,6 +257,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # To use the LLM scorer, you need to set the OPENROUTER_API_KEY in a .env file
-    # e.g.: OPENROUTER_API_KEY="your-key"
     main()

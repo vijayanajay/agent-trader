@@ -187,14 +187,14 @@ def test_backtester_market_regime_filter(
         assert len(trades) == 0, "Should not have found trades in a downtrend market."
 
 
-@patch("backtester.run_crew_analysis")
-def test_backtester_llm_scorer_happy_path(mock_run_crew_analysis: MagicMock) -> None:
+@patch("backtester.get_llm_analysis")
+def test_backtester_llm_scorer_happy_path(mock_get_llm_analysis: MagicMock) -> None:
     """
     Tests that the backtester with '--scorer llm' creates outputs with the correct
     LLM-specific columns by calling the function directly.
     """
-    # Arrange: Mock the crew analysis to return a consistent, successful result
-    mock_run_crew_analysis.return_value = {
+    # Arrange: Mock the llm analysis to return a consistent, successful result
+    mock_get_llm_analysis.return_value = {
         "pattern_description": "LLM mock description",
         "pattern_strength_score": 9.5,
         "rationale": "LLM mock rationale",
@@ -211,6 +211,7 @@ def test_backtester_llm_scorer_happy_path(mock_run_crew_analysis: MagicMock) -> 
     # Assert
     assert len(trades) > 0, "LLM scorer should have produced trades with the mock."
     assert len(daily_logs) > 0, "LLM scorer should have produced daily logs."
+    assert mock_get_llm_analysis.called, "get_llm_analysis should have been called."
 
     # 1. Verify trade results have LLM fields
     first_trade = trades[0]
@@ -223,6 +224,6 @@ def test_backtester_llm_scorer_happy_path(mock_run_crew_analysis: MagicMock) -> 
     assert first_trade["pattern_desc"] == "LLM mock rationale"
 
     # 2. Verify daily run log has LLM fields
-    first_log = daily_logs[-1] # Check one of the later logs where a trade would be
+    first_log = next(log for log in reversed(daily_logs) if log.get("final_score", 0) > 0)
     expected_log_cols = ["llm_pattern_score", "llm_pattern_description"]
     assert all(col in first_log for col in expected_log_cols)

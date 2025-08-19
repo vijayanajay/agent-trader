@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
 
-__all__ = ["preprocess_data"]
+__all__ = ["preprocess_data", "format_data_for_llm"]
 
 
 def _calculate_atr(df: pd.DataFrame, period: int) -> pd.Series:
@@ -61,3 +61,49 @@ def preprocess_data(
     # Drop rows with NaNs from indicator calculations
     processed_df.dropna(inplace=True)
     return processed_df
+
+
+def format_data_for_llm(window_df: pd.DataFrame) -> str:
+    """
+    Formats the provided DataFrame into a clean, normalized text block for the LLM.
+    """
+    # Ensure there are 40 days, padding with empty rows if necessary
+    if len(window_df) < 40:
+        padding_rows = 40 - len(window_df)
+        empty_df = pd.DataFrame(
+            index=pd.to_datetime(pd.date_range(
+                start=window_df.index.min() - pd.Timedelta(days=padding_rows),
+                periods=padding_rows
+            )),
+            columns=window_df.columns
+        )
+        window_df = pd.concat([empty_df, window_df])
+
+    # Normalize Close and Volume
+    close_min, close_max = window_df["Close"].min(), window_df["Close"].max()
+    volume_min, volume_max = window_df["Volume"].min(), window_df["Volume"].max()
+
+    # Avoid division by zero if all values are the same
+    close_range = close_max - close_min if close_max > close_min else 1
+    volume_range = volume_max - volume_min if volume_max > volume_min else 1
+
+    # Use a temporary copy for normalization calculations
+    temp_df = window_df.copy()
+    temp_df["norm_close"] = ((temp_df["Close"] - close_min) / close_range) * 100
+    temp_df["norm_volume"] = ((temp_df["Volume"] - volume_min) / volume_range) * 100
+
+    data_lines = []
+    for date, row in temp_df.iterrows():
+        if pd.notna(row['Close']):
+            data_lines.append(
+                f"Date: {date.strftime('%Y-%m-%d')}, "
+                f"Close: {row['Close']:.2f}, "
+                f"Norm Close: {row['norm_close']:.0f}, "
+                f"Volume: {row['Volume']:,.0f}, "
+                f"Norm Vol: {row['norm_volume']:.0f}"
+            )
+        else:
+            # Represent padded rows clearly
+            data_lines.append(f"Date: {date.strftime('%Y-%m-%d')}, [no data]")
+
+    return "\n".join(data_lines)
