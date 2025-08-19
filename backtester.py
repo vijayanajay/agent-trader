@@ -28,6 +28,7 @@ class BacktestConfig:
     """Configuration for the backtester execution."""
 
     scorer_type: str = "deterministic"
+    trigger_mode: str = "always"
     forward_window: int = 20
     score_threshold: float = 7.0
     lookback_window: int = 40
@@ -133,27 +134,57 @@ def run_backtest(
 
         window_df = df.iloc[i - cfg.lookback_window : i]
         current_price = df["Close"].iloc[i]
-        score_result: Dict[str, Any]
+        score_result: Dict[str, Any] = {}
+        trigger_event: Optional[str] = None
 
         if cfg.scorer_type == "llm":
-            formatted_data = format_data_for_llm(window_df)
-            llm_result = get_llm_analysis(formatted_data)
+            should_trigger_llm = False
+            if cfg.trigger_mode == "always":
+                should_trigger_llm = True
+                trigger_event = "ALWAYS"
+            elif cfg.trigger_mode == "event":
+                # Event-based triggering for LLM
+                # Ensure there's enough data for a 50-day median calculation
+                if i >= 50:
+                    vol_median_50d = df["Volume"].iloc[i - 50 : i].median()
+                    is_volume_spike = df["Volume"].iloc[i] > (vol_median_50d * 2.5) if vol_median_50d > 0 else False
+                else:
+                    is_volume_spike = False
 
-            if "error" in llm_result:
-                print(f"LLM Error on {current_date.date()}: {llm_result.get('details')}", file=sys.stderr)
-                score_result = {"final_score": 0, "description": "LLM_ERROR"}
+                price_yesterday = df["Close"].iloc[i - 1]
+                sma50_yesterday = df["sma50"].iloc[i - 1]
+                is_sma_cross_up = current_price > df["sma50"].iloc[i] and price_yesterday < sma50_yesterday
+
+                if is_volume_spike:
+                    trigger_event = "VOLUME_SPIKE"
+                if is_sma_cross_up:
+                    trigger_event = "SMA_CROSS_UP" if trigger_event is None else f"{trigger_event};SMA_CROSS_UP"
+
+                if trigger_event:
+                    should_trigger_llm = True
+
+            if should_trigger_llm:
+                formatted_data = format_data_for_llm(window_df)
+                llm_result = get_llm_analysis(formatted_data)
+
+                if "error" in llm_result:
+                    print(f"LLM Error on {current_date.date()}: {llm_result.get('details')}", file=sys.stderr)
+                    score_result = {"final_score": 0, "description": "LLM_ERROR"}
+                else:
+                    try:
+                        llm_score = float(llm_result.get("pattern_strength_score", 0.0))
+                    except (ValueError, TypeError):
+                        llm_score = 0.0
+
+                    score_result = {
+                        "final_score": llm_score,
+                        "description": llm_result.get("rationale", ""),
+                        "llm_pattern_score": llm_score,
+                        "llm_pattern_description": llm_result.get("pattern_description", ""),
+                    }
             else:
-                try:
-                    llm_score = float(llm_result.get("pattern_strength_score", 0.0))
-                except (ValueError, TypeError):
-                    llm_score = 0.0
-
-                score_result = {
-                    "final_score": llm_score,
-                    "description": llm_result.get("rationale", ""),
-                    "llm_pattern_score": llm_score,
-                    "llm_pattern_description": llm_result.get("pattern_description", ""),
-                }
+                # If no event, no LLM call, score is 0
+                score_result = {"final_score": 0, "description": "NO_EVENT"}
         else:
             market_window_df = (
                 market_regime.iloc[i - cfg.lookback_window : i]
@@ -169,7 +200,7 @@ def run_backtest(
                 scorer_cfg,
             )
 
-        log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, **df.iloc[i].to_dict(), **score_result}
+        log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, "trigger_event": trigger_event, **df.iloc[i].to_dict(), **score_result}
         daily_logs.append(log_entry)
 
         if score_result.get("final_score", 0.0) >= cfg.score_threshold:
@@ -243,12 +274,20 @@ def main() -> None:
     parser.add_argument(
         "--lookback", type=int, default=40, help="Lookback window size (default: 40)."
     )
+    parser.add_argument(
+        "--trigger-mode",
+        type=str,
+        default="always",
+        choices=["always", "event"],
+        help="LLM trigger mode (default: always). Only active for --scorer llm.",
+    )
     args = parser.parse_args()
 
     ticker_name = Path(args.ticker).stem
     bt_config = BacktestConfig(
         scorer_type=args.scorer,
-        lookback_window=args.lookback
+        trigger_mode=args.trigger_mode,
+        lookback_window=args.lookback,
     )
     scorer_config = ScorerConfig()
 

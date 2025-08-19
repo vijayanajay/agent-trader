@@ -227,3 +227,112 @@ def test_backtester_llm_scorer_happy_path(mock_get_llm_analysis: MagicMock) -> N
     first_log = next(log for log in reversed(daily_logs) if log.get("final_score", 0) > 0)
     expected_log_cols = ["llm_pattern_score", "llm_pattern_description"]
     assert all(col in first_log for col in expected_log_cols)
+
+
+def _create_synthetic_data_for_triggers() -> pd.DataFrame:
+    """Creates a synthetic DataFrame with specific trigger events."""
+    dates = pd.to_datetime(pd.date_range(start="2023-01-01", periods=200))
+    data = {
+        "Open": 100, "High": 105, "Low": 95, "Close": 100,
+        "Volume": 1_000_000, "Adj Close": 100
+    }
+    df = pd.DataFrame([data] * 200, index=dates)
+    df.index.name = "Date"
+
+    # We need sma50 and atr14 for the triggers.
+    df["sma50"] = 100.0
+    df["atr14"] = 2.0
+
+    # Volume Spike at index 72
+    df.loc[df.index[72], "Volume"] = 3_000_000
+
+    # SMA Crossover at index 74
+    df.loc[df.index[73], "Close"] = 99
+    df.loc[df.index[73], "sma50"] = 100
+    df.loc[df.index[74], "Close"] = 101
+    df.loc[df.index[74], "sma50"] = 100
+
+    # Both events at index 76
+    df.loc[df.index[75], "Close"] = 99
+    df.loc[df.index[75], "sma50"] = 100
+    df.loc[df.index[76], "Close"] = 101
+    df.loc[df.index[76], "sma50"] = 100
+    df.loc[df.index[76], "Volume"] = 3_500_000
+
+    return df
+
+
+@patch("backtester.get_llm_analysis")
+@patch("backtester.preprocess_data")
+@patch("backtester._load_data")
+@patch("backtester._load_market_data")
+def test_backtester_llm_event_triggering(
+    mock_load_market_data: MagicMock,
+    mock_load_data: MagicMock,
+    mock_preprocess_data: MagicMock,
+    mock_get_llm_analysis: MagicMock,
+) -> None:
+    """
+    Tests that the LLM scorer is only triggered on specific event days.
+    """
+    # Arrange
+    mock_get_llm_analysis.return_value = {
+        "pattern_strength_score": 9.5, "rationale": "Mock rationale"
+    }
+    synthetic_df = _create_synthetic_data_for_triggers()
+    mock_load_data.return_value = synthetic_df
+    mock_preprocess_data.return_value = synthetic_df
+    mock_load_market_data.return_value = pd.DataFrame()
+
+
+    bt_config = BacktestConfig(
+        scorer_type="llm",
+        trigger_mode="event",
+        lookback_window=40,
+        score_threshold=9.0,
+    )
+    scorer_config = ScorerConfig()
+
+    # Act
+    trades, daily_logs = run_backtest("DUMMY_PATH", bt_config, scorer_config)
+
+    # Assert
+    assert mock_get_llm_analysis.call_count == 3
+
+
+@patch("backtester.get_llm_analysis")
+@patch("backtester.preprocess_data")
+@patch("backtester._load_data")
+@patch("backtester._load_market_data")
+def test_backtester_llm_always_triggering(
+    mock_load_market_data: MagicMock,
+    mock_load_data: MagicMock,
+    mock_preprocess_data: MagicMock,
+    mock_get_llm_analysis: MagicMock,
+) -> None:
+    """
+    Tests that the LLM scorer is triggered on ALL days when trigger_mode is 'always'.
+    """
+    # Arrange
+    mock_get_llm_analysis.return_value = {
+        "pattern_strength_score": 8.0, "rationale": "Mock rationale"
+    }
+    synthetic_df = _create_synthetic_data_for_triggers()
+    mock_load_data.return_value = synthetic_df
+    mock_preprocess_data.return_value = synthetic_df
+    mock_load_market_data.return_value = pd.DataFrame()
+
+    bt_config = BacktestConfig(
+        scorer_type="llm",
+        trigger_mode="always",
+        lookback_window=40,
+        score_threshold=7.0,
+    )
+    scorer_config = ScorerConfig()
+
+    # Act
+    trades, daily_logs = run_backtest("DUMMY_PATH", bt_config, scorer_config)
+
+    # Assert
+    # The loop runs from lookback (40) to len-forward (200-20=180), which is 140 iterations.
+    assert mock_get_llm_analysis.call_count == 140
