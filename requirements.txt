@@ -5,3 +5,4 @@ rich
 crewai==0.30.11
 openai==1.14.3
 python-dotenv==1.0.1
+httpx==0.28.1

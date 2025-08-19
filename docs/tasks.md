@@ -148,41 +148,61 @@ Status: Completed
 
 ## Task 15 — Activate the "Hinton Core": Implement LLM Pattern Analyser Agent
 
-*   **Rationale:** The deterministic scorer is now a stable and improved baseline. However, the project's core hypothesis—that an LLM can identify "emergent" patterns beyond simple heuristics—remains untested. This task activates the `Pattern_Analyser` agent as described in the PRD, replacing the deterministic momentum score with an LLM-generated analysis. This is the most critical next step to validate the project's central premise and unlock a potentially drastic improvement in signal quality, directly aligning with rule [H-23] (Deterministic baseline first).
+Rationale: The deterministic scorer provides a stable baseline. This task activates the project's core hypothesis: that an LLM can identify "emergent" patterns beyond simple heuristics. To achieve this pragmatically and avoid framework complexities noted in the project memory, the LLM was implemented as a direct adapter rather than a full CrewAI agent. It functions as an alternative scoring engine, allowing for a clean A/B comparison against the deterministic model, per rule [H-23].
+Items Implemented:
+LLM Adapter: Created src/adapters/llm.py to handle direct API calls to an LLM provider (OpenRouter) using httpx. This approach was chosen for simplicity and robustness, bypassing the crewai framework for this core task.
+Data Formatting: Implemented format_data_for_llm in src/data_preprocessor.py to prepare a clean, normalized 40-day text block for the LLM prompt.
+Prompt Management: Centralized the PATTERN_ANALYSER_PROMPT in src/prompts.py, using the exact text from the PRD.
+LLM Audit Logging: The adapter strictly adheres to rule [H-22], logging every LLM call's metadata and response to results/llm_audit.log.
+Backtester Integration:
+Added a --scorer llm command-line argument to backtester.py.
+When this mode is active, the backtester calls get_llm_analysis instead of the local score function.
+The final_score for a trade signal is taken directly from the pattern_strength_score in the LLM's JSON response. The deterministic score components are completely bypassed in this mode.
+Updated Logging: The daily_logs and the final trade results CSV were updated to include llm_pattern_score and llm_pattern_description when running in llm mode.
+Tests Covered:
+In tests/test_backtester.py, a new test test_backtester_llm_scorer_happy_path was added.
+This test uses @patch to mock the get_llm_analysis function, ensuring the test runs without actual API calls.
+It asserts that when --scorer llm is used, the backtester correctly calls the LLM adapter and that the resulting run_log.csv and trade list contain the new llm_ specific columns.
+Acceptance Criteria (AC):
+The backtester.py script accepts a --scorer llm argument.
+When run with this flag, the script successfully calls the get_llm_analysis function for each day of the backtest.
+A results/llm_audit.log file is created and populated with structured log entries.
+The results/runs/<TICKER>.run_log.csv file contains the llm_pattern_score and llm_pattern_description columns.
+The results/results_<TICKER>.csv file is generated based on the LLM-driven scores.
+Definition of Done (DoD):
+All new and modified code is committed to src/, tests/, and docs/.
+All unit tests pass (python -m pytest).
+A short backtest run on RELIANCE.NS.sample.csv using --scorer llm completes successfully and generates all expected output files.
+The PRD and Architecture documents are updated to reflect the new implementation status.
+Time estimate: 24 hours
+Status: Completed (Refactored from original CrewAI plan)
+
+
+## Task 16 — Implement Event-Based LLM Triggering
+
+*   **Rationale:** Calling the LLM on every day of a backtest is inefficient and costly. The hypothesis is that the most valuable, pattern-rich moments occur at points of significant change. This task implements an "event-based" trigger to invoke the LLM scorer only on these specific days, drastically reducing API calls while focusing analysis on high-potential inflection points. This is an alternative to simple score-based pre-filtering.
 *   **Items to implement:**
-    1.  **Create Agent Structure:**
-        -   Create a new directory: `src/agents/`.
-        -   Create a new file `src/crew.py` to define the CrewAI crew and agents.
-    2.  **Implement `Pattern_Analyser` Agent:**
-        -   In a new file `src/agents/pattern_analyser.py`, define the `Pattern_Analyser` agent using CrewAI.
-        -   Use the exact prompt specified in `docs/prd.md` (Section 5, Agent 2), which instructs the LLM to describe patterns without jargon and provide a strength score.
-        -   Create a helper function/tool that takes a 40-day DataFrame window and formats it into the clean, normalized text block required by the prompt.
-    3.  **Implement LLM Audit Logging:**
-        -   Create a simple, robust LLM client or wrapper.
-        -   Ensure every call to the LLM strictly adheres to rule [H-22] by logging `{prompt_version, prompt_hash, model, temperature, token_count, response, timestamp}` to a new file, e.g., `results/llm_audit.log`.
-    4.  **Integrate into Backtester:**
-        -   In `backtester.py`, add a new command-line argument: `--scorer`, which can be `deterministic` (default) or `llm`.
-        -   When `--scorer llm` is used, the backtester will:
-            -   Instantiate the CrewAI crew.
-            -   Instead of calling the local `score` function, it will call `crew.kickoff()` with the formatted data window.
-            -   It must parse the JSON response from the agent. Implement robust error handling for API failures or malformed JSON.
-            -   The `llm_pattern_score` from the agent's response will replace the `relative_strength_score` in the `final_score` calculation. The other components (SMA, Volume, Volatility) will remain for now.
-    5.  **Update Logging:**
-        -   Modify the `daily_logs` in `backtester.py` to include the new LLM-generated fields: `llm_pattern_description`, `llm_pattern_score`.
-        -   Ensure these new columns are saved to the `run_log.csv`.
+    1.  **Modify `backtester.py`:**
+        -   Add a new command-line argument: `--trigger-mode`, with choices `always` (default) and `event`. This will only be active when `--scorer llm` is used.
+        -   Inside the main backtest loop, before the LLM call, implement the event detection logic. This will require tracking state from the previous day.
+        -   Define the initial set of trigger events:
+            -   **Volume Spike:** `current_volume > 2.5 * 50-day_median_volume`.
+            -   **SMA Crossover:** `price_today > sma50_today` AND `price_yesterday < sma50_yesterday`.
+        -   The LLM analysis will only be performed if `--trigger-mode event` is specified AND one of the trigger conditions is met.
+        -   Add a new column `trigger_event` to the `daily_logs` to record which event (e.g., "VOLUME_SPIKE", "SMA_CROSS_UP") caused the LLM call. This is crucial for later analysis.
 *   **Tests to cover:**
-    -   Add a new test file `tests/test_agents.py`.
-    -   Write a unit test for the `Pattern_Analyser` agent that mocks the LLM API call. The test should confirm that the agent correctly processes a successful JSON response and handles a malformed/error response gracefully.
-    -   Update `tests/test_backtester.py` to run a small backtest with the `--scorer llm` flag (using a mocked CrewAI `kickoff` method) and verify that the new `llm_` columns appear in the `run_log.csv`.
+    -   In `tests/test_backtester.py`, create a new test using a small, synthetic DataFrame designed to have a clear volume spike on one day and an SMA crossover on another.
+    -   Mock the `get_llm_analysis` function.
+    -   Run the backtester function programmatically with `scorer_type='llm'` and `trigger_mode='event'`.
+    -   Assert that the mocked LLM function was called exactly on the days where the events occurred.
 *   **Acceptance Criteria (AC):**
-    -   The `backtester.py` script accepts a `--scorer llm` argument.
-    -   When run with this flag, the script successfully executes the CrewAI agent for each day of the backtest.
-    -   A `results/llm_audit.log` file is created and populated with structured log entries for each LLM call.
-    -   The `results/runs/<TICKER>.run_log.csv` file contains the new `llm_pattern_score` and `llm_pattern_description` columns.
-    -   The system produces a `results/results_<TICKER>.csv` file based on the new LLM-driven scores.
+    -   The `backtester.py` script accepts a `--trigger-mode event` argument.
+    -   Running a backtest with this flag results in a significantly lower number of entries in `llm_audit.log` compared to the `always` mode.
+    -   The `run_log.csv` file contains a `trigger_event` column, which is populated on days the LLM was called and is empty otherwise.
+    -   The system still produces valid `results` and `run_log` files.
 *   **Definition of Done (DoD):**
-    -   All new and modified code is committed to `src/`, `tests/`, and `docs/`.
+    -   Changes to `backtester.py` and `tests/test_backtester.py` are implemented and committed.
     -   All unit tests pass (`python -m pytest`).
-    -   A short backtest run on `RELIANCE.NS.sample.csv` using `--scorer llm` completes successfully and generates all expected output files.
-    -   The PRD and Architecture documents are updated to reflect the new implementation status.
-*   **Time estimate:** 24 hours
+    -   A sample run on `RELIANCE.NS.sample.csv` with `--scorer llm --trigger-mode event` completes successfully and demonstrates a reduction in LLM calls.
+*   **Time estimate:** 5 hours
+*   **Status:** Not Started
