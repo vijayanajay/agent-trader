@@ -19,16 +19,12 @@ import pandas as pd
 from src.data_preprocessor import preprocess_data
 from src.pattern_scorer import score, ScorerConfig
 from src.risk_manager import calculate_risk_parameters
-from src.adapters.llm import get_llm_analysis
-from src.data_preprocessor import format_data_for_llm
 
 
 @dataclass
 class BacktestConfig:
     """Configuration for the backtester execution."""
 
-    scorer_type: str = "deterministic"
-    trigger_mode: str = "always"
     forward_window: int = 20
     score_threshold: float = 7.0
     lookback_window: int = 40
@@ -134,73 +130,22 @@ def run_backtest(
 
         window_df = df.iloc[i - cfg.lookback_window : i]
         current_price = df["Close"].iloc[i]
-        score_result: Dict[str, Any] = {}
-        trigger_event: Optional[str] = None
 
-        if cfg.scorer_type == "llm":
-            should_trigger_llm = False
-            if cfg.trigger_mode == "always":
-                should_trigger_llm = True
-                trigger_event = "ALWAYS"
-            elif cfg.trigger_mode == "event":
-                # Event-based triggering for LLM
-                # Ensure there's enough data for a 50-day median calculation
-                if i >= 50:
-                    vol_median_50d = df["Volume"].iloc[i - 50 : i].median()
-                    is_volume_spike = df["Volume"].iloc[i] > (vol_median_50d * 2.5) if vol_median_50d > 0 else False
-                else:
-                    is_volume_spike = False
+        market_window_df = (
+            market_regime.iloc[i - cfg.lookback_window : i]
+            if market_regime is not None
+            else pd.DataFrame()
+        )
+        score_result = score(
+            window_df,
+            market_window_df,
+            current_price,
+            df["sma50"].iloc[i],
+            df["atr14"].iloc[i],
+            scorer_cfg,
+        )
 
-                price_yesterday = df["Close"].iloc[i - 1]
-                sma50_yesterday = df["sma50"].iloc[i - 1]
-                is_sma_cross_up = current_price > df["sma50"].iloc[i] and price_yesterday < sma50_yesterday
-
-                if is_volume_spike:
-                    trigger_event = "VOLUME_SPIKE"
-                if is_sma_cross_up:
-                    trigger_event = "SMA_CROSS_UP" if trigger_event is None else f"{trigger_event};SMA_CROSS_UP"
-
-                if trigger_event:
-                    should_trigger_llm = True
-
-            if should_trigger_llm:
-                formatted_data = format_data_for_llm(window_df)
-                llm_result = get_llm_analysis(formatted_data)
-
-                if "error" in llm_result:
-                    print(f"LLM Error on {current_date.date()}: {llm_result.get('details')}", file=sys.stderr)
-                    score_result = {"final_score": 0, "description": "LLM_ERROR"}
-                else:
-                    try:
-                        llm_score = float(llm_result.get("pattern_strength_score", 0.0))
-                    except (ValueError, TypeError):
-                        llm_score = 0.0
-
-                    score_result = {
-                        "final_score": llm_score,
-                        "description": llm_result.get("rationale", ""),
-                        "llm_pattern_score": llm_score,
-                        "llm_pattern_description": llm_result.get("pattern_description", ""),
-                    }
-            else:
-                # If no event, no LLM call, score is 0
-                score_result = {"final_score": 0, "description": "NO_EVENT"}
-        else:
-            market_window_df = (
-                market_regime.iloc[i - cfg.lookback_window : i]
-                if market_regime is not None
-                else pd.DataFrame()
-            )
-            score_result = score(
-                window_df,
-                market_window_df,
-                current_price,
-                df["sma50"].iloc[i],
-                df["atr14"].iloc[i],
-                scorer_cfg,
-            )
-
-        log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, "trigger_event": trigger_event, **df.iloc[i].to_dict(), **score_result}
+        log_entry = {"date": current_date.strftime("%Y-%m-%d"), "price": current_price, **df.iloc[i].to_dict(), **score_result}
         daily_logs.append(log_entry)
 
         if score_result.get("final_score", 0.0) >= cfg.score_threshold:
@@ -213,7 +158,7 @@ def run_backtest(
                 "pattern_desc": score_result.get("description", ""),
                 **risk_params,
                 **trade_outcome,
-                **score_result,  # Add all score components to the trade log
+                **score_result,
             }
             trades.append(trade_entry)
 
@@ -225,7 +170,6 @@ def _save_results(
     trades: List[Dict[str, Any]],
     daily_logs: List[Dict[str, Any]],
     ticker_name: str,
-    scorer_type: str,
 ) -> None:
     """Saves trade results and daily logs to CSV files."""
     results_dir = Path("results")
@@ -237,16 +181,11 @@ def _save_results(
         print(f"Found {len(trades)} trades. Results saved to {trade_output_path}")
     else:
         print("No trades triggered.")
-        # Define all possible headers to ensure schema is consistent
-        base_cols = [
+        headers = [
             "entry_date", "entry_price", "pattern_score", "pattern_desc",
-            "stop_loss", "take_profit", "outcome", "forward_return_pct"
+            "stop_loss", "take_profit", "outcome", "forward_return_pct",
+            "relative_strength_score", "volume_score", "sma_score", "volatility_score"
         ]
-        det_cols = ["relative_strength_score", "volume_score", "sma_score", "volatility_score"]
-        llm_cols = ["llm_pattern_score", "llm_pattern_description"]
-
-        # Use the correct set of headers for the scorer type
-        headers = base_cols + (llm_cols if scorer_type == "llm" else det_cols)
         pd.DataFrame(columns=headers).to_csv(trade_output_path, index=False)
 
     if daily_logs:
@@ -265,34 +204,18 @@ def main() -> None:
         "--ticker", type=str, required=True, help="Path to the ticker CSV file."
     )
     parser.add_argument(
-        "--scorer",
-        type=str,
-        default="deterministic",
-        choices=["deterministic", "llm"],
-        help="Scoring model to use (default: deterministic)."
-    )
-    parser.add_argument(
         "--lookback", type=int, default=40, help="Lookback window size (default: 40)."
-    )
-    parser.add_argument(
-        "--trigger-mode",
-        type=str,
-        default="always",
-        choices=["always", "event"],
-        help="LLM trigger mode (default: always). Only active for --scorer llm.",
     )
     args = parser.parse_args()
 
     ticker_name = Path(args.ticker).stem
     bt_config = BacktestConfig(
-        scorer_type=args.scorer,
-        trigger_mode=args.trigger_mode,
         lookback_window=args.lookback,
     )
     scorer_config = ScorerConfig()
 
     trades, daily_logs = run_backtest(args.ticker, bt_config, scorer_config)
-    _save_results(trades, daily_logs, ticker_name, args.scorer)
+    _save_results(trades, daily_logs, ticker_name)
 
 
 if __name__ == "__main__":
