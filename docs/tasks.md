@@ -180,29 +180,30 @@ Status: Completed (Refactored from original CrewAI plan)
 
 ## Task 16 — Implement Event-Based LLM Triggering
 
-*   **Rationale:** Calling the LLM on every day of a backtest is inefficient and costly. The hypothesis is that the most valuable, pattern-rich moments occur at points of significant change. This task implements an "event-based" trigger to invoke the LLM scorer only on these specific days, drastically reducing API calls while focusing analysis on high-potential inflection points. This is an alternative to simple score-based pre-filtering.
+*   **Rationale:** Calling the LLM on every day of a backtest is inefficient. This task implements an "event-based" trigger to invoke an optional LLM scorer only on days with significant market action, focusing analysis on high-potential inflection points.
 *   **Items to implement:**
     1.  **Modify `backtester.py`:**
-        -   Add a new command-line argument: `--trigger-mode`, with choices `always` (default) and `event`. This will only be active when `--scorer llm` is used.
-        -   Inside the main backtest loop, before the LLM call, implement the event detection logic. This will require tracking state from the previous day.
-        -   Define the initial set of trigger events:
+        -   Add a single new command-line argument: `--llm` (as a boolean flag, `action="store_true"`).
+        -   Inside the main backtest loop, check if the `--llm` flag is active.
+        -   If `--llm` is active, implement the event detection logic:
             -   **Volume Spike:** `current_volume > 2.5 * 50-day_median_volume`.
             -   **SMA Crossover:** `price_today > sma50_today` AND `price_yesterday < sma50_yesterday`.
-        -   The LLM analysis will only be performed if `--trigger-mode event` is specified AND one of the trigger conditions is met.
-        -   Add a new column `trigger_event` to the `daily_logs` to record which event (e.g., "VOLUME_SPIKE", "SMA_CROSS_UP") caused the LLM call. This is crucial for later analysis.
+            -   If either event is detected, call the `get_llm_analysis` function from the LLM adapter. The `final_score` will be the `pattern_strength_score` from the LLM.
+            -   If no event is detected, the score for that day is 0, and the LLM is **not** called.
+        -   If `--llm` is **not** active, the backtester runs the existing deterministic `score()` function as default.
+        -   Add a `trigger_event` column to the `daily_logs` to record what triggered the LLM call (e.g., "VOLUME_SPIKE").
 *   **Tests to cover:**
-    -   In `tests/test_backtester.py`, create a new test using a small, synthetic DataFrame designed to have a clear volume spike on one day and an SMA crossover on another.
+    -   In `tests/test_backtester.py`, create a new test using a synthetic DataFrame with a clear volume spike and an SMA crossover.
     -   Mock the `get_llm_analysis` function.
-    -   Run the backtester function programmatically with `scorer_type='llm'` and `trigger_mode='event'`.
-    -   Assert that the mocked LLM function was called exactly on the days where the events occurred.
+    -   Run the backtester function programmatically with `use_llm_scorer=True`.
+    -   Assert that the mocked LLM function was called **exactly twice**—only on the days where the events occurred.
 *   **Acceptance Criteria (AC):**
-    -   The `backtester.py` script accepts a `--trigger-mode event` argument.
-    -   Running a backtest with this flag results in a significantly lower number of entries in `llm_audit.log` compared to the `always` mode.
-    -   The `run_log.csv` file contains a `trigger_event` column, which is populated on days the LLM was called and is empty otherwise.
-    -   The system still produces valid `results` and `run_log` files.
+    -   The `backtester.py` script accepts a `--llm` flag.
+    -   Running with `--llm` results in a small, targeted number of LLM calls logged in `llm_audit.log`.
+    -   The `run_log.csv` contains a `trigger_event` column, populated only on days the LLM was called.
+    -   Running without the flag produces the same deterministic results as before.
 *   **Definition of Done (DoD):**
-    -   Changes to `backtester.py` and `tests/test_backtester.py` are implemented and committed.
-    -   All unit tests pass (`python -m pytest`).
-    -   A sample run on `RELIANCE.NS.sample.csv` with `--scorer llm --trigger-mode event` completes successfully and demonstrates a reduction in LLM calls.
-*   **Time estimate:** 5 hours
+    -   Changes to `backtester.py` and `tests/test_backtester.py` are implemented.
+    -   All unit tests pass.
+    -   A sample run on `RELIANCE.NS.sample.csv --llm` completes and demonstrates the event-based triggering.
 *   **Status:** Not Started
